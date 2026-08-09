@@ -1,0 +1,18 @@
+{
+  "name": "fx-375ES web — 関数電卓",
+  "short_name": "fx-375ES",
+  "description": "カシオ fx-375ES A 相当の関数電卓。フリック入力、方程式の解法、記号積分、複素数計算に対応。",
+  "lang": "ja",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1b1f25",
+  "theme_color": "#15181d",
+  "categories": ["utilities", "education", "productivity"],
+  "icons": [
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

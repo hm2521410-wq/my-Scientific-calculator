@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no, maximum-scale=1">
+<meta name="theme-color" content="#15181d">
+<meta name="description" content="カシオ fx-375ES A 相当の関数電卓。フリック入力・方程式解法・記号積分・複素数計算に対応したブラウザ版（PWA）。">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="fx-375ES web">
+<title>fx-375ES web — 関数電卓</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/icon-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="./icons/icon-192.png">
+<link rel="stylesheet" href="./styles/app.css">
+</head>
+<body>
+
+<div id="app">
+  <div id="calculator">
+
+    <div class="screen">
+      <div id="status" class="status"></div>
+      <div id="expr" class="expr"></div>
+      <div id="result" class="result"></div>
+    </div>
+
+    <div id="control-strip" class="control-strip"></div>
+    <div id="fn-grid" class="grid fn-grid"></div>
+    <div id="num-grid" class="grid num-grid"></div>
+
+  </div>
+</div>
+
+<div id="overlay" class="overlay"></div>
+
+<script type="module" src="./src/app.js"></script>
+</body>
+</html>

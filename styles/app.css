@@ -120,7 +120,13 @@ body { display: flex; justify-content: center; }
 
 /* ------------------------------------------------- natural (textbook) display */
 
-.nd-list { display: inline-flex; align-items: center; white-space: nowrap; }
+.nd-list {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  /* Tight boxes: delimiter scaling measures glyphs, not the paragraph leading. */
+  line-height: 1.15;
+}
 .nd-ch { padding: 0 .02em; }
 .nd-op { padding: 0 .16em; }
 .nd-sym { padding: 0 .04em; }
@@ -168,7 +174,7 @@ body { display: flex; justify-content: center; }
 .nd-subscript { font-size: .62em; align-self: flex-end; position: relative; top: .3em; }
 
 .nd-root { display: inline-flex; align-items: flex-start; margin: 0 .06em; }
-.nd-radical { line-height: 1; display: inline-block; transform-origin: center bottom; }
+.nd-radical { line-height: 1; display: inline-block; transform-origin: center 60%; }
 .nd-radicand {
   border-top: 1.5px solid currentColor;
   padding: .06em .25em 0 .1em;

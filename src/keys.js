@@ -198,14 +198,13 @@ export const FUNCTION_ROWS = [
     },
     {
       id: 'si', cls: 'fn',
-      // Display-only: these restate the answer, they never alter the expression.
+      // Unlike every other key this one is vertical-only: touching it opens a
+      // ladder of prefixes reaching up (k, M, G, …) and down (m, µ, n, …).
+      // It only ever restates the answer; the expression is never touched.
       center: k('接頭辞', menu('si'), null, null, 'SI'),
-      up: k('k  キロ', cmd('si', 3), 'shift', 'k'),
-      right: k('M  メガ', cmd('si', 6), 'alpha', 'M'),
-      down: k('m  ミリ', cmd('si', -3), 'extra', 'm'),
-      left: k('µ  マイクロ', cmd('si', -6), 'extra', 'µ'),
-      holdPicker: true,
-      longPress: menu('si'),
+      up: k('k  キロ', cmd('si', 3), 'shift', 'k M G'),
+      down: k('m  ミリ', cmd('si', -3), 'extra', 'm µ n'),
+      instantPicker: true,
     },
     {
       id: 'lparen', cls: 'fn',
@@ -371,21 +370,23 @@ export const MENUS = {
  * rescales the displayed result (kPa, MPa, mV, µF …).
  */
 export const SI_PREFIXES = [
+  { sym: 'Y', name: 'ヨタ', exp: 24 },
+  { sym: 'Z', name: 'ゼタ', exp: 21 },
+  { sym: 'E', name: 'エクサ', exp: 18 },
   { sym: 'P', name: 'ペタ', exp: 15 },
   { sym: 'T', name: 'テラ', exp: 12 },
   { sym: 'G', name: 'ギガ', exp: 9 },
   { sym: 'M', name: 'メガ', exp: 6 },
   { sym: 'k', name: 'キロ', exp: 3 },
-  { sym: 'h', name: 'ヘクト', exp: 2 },
-  { sym: 'da', name: 'デカ', exp: 1 },
-  { sym: '—', name: '（なし）', exp: 0 },
-  { sym: 'd', name: 'デシ', exp: -1 },
-  { sym: 'c', name: 'センチ', exp: -2 },
+  { sym: '—', name: 'なし', exp: 0 },
   { sym: 'm', name: 'ミリ', exp: -3 },
   { sym: 'µ', name: 'マイクロ', exp: -6 },
   { sym: 'n', name: 'ナノ', exp: -9 },
   { sym: 'p', name: 'ピコ', exp: -12 },
   { sym: 'f', name: 'フェムト', exp: -15 },
+  { sym: 'a', name: 'アト', exp: -18 },
+  { sym: 'z', name: 'ゼプト', exp: -21 },
+  { sym: 'y', name: 'ヨクト', exp: -24 },
 ];
 
 /**

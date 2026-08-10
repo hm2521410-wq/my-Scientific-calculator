@@ -51,6 +51,18 @@ export class FlickController {
     btn.classList.add('pressed');
     haptic(8);
 
+    // A key with `instantPicker` skips the flick popup entirely: its ladder
+    // opens the moment it is touched, and the same drag scrubs it.
+    if (data.instantPicker && this.openPicker) {
+      const picker = this.openPicker(data, btn.getBoundingClientRect(),
+        { x: e.clientX, y: e.clientY });
+      if (picker) {
+        this.active.picker = picker;
+        picker.update(e.clientX, e.clientY);
+        return;
+      }
+    }
+
     if (hasFlickTargets(data)) this.showPopup(btn, data);
     this.startRepeat(data);
     this.startLongPress(data);
@@ -65,7 +77,7 @@ export class FlickController {
     const dy = e.clientY - a.y0;
 
     // Once a hold-picker is open the drag belongs to it.
-    if (a.picker) { a.picker.update(dx, dy); return; }
+    if (a.picker) { a.picker.update(e.clientX, e.clientY); return; }
 
     const dist = Math.hypot(dx, dy);
     let dir = 'center';
@@ -133,7 +145,7 @@ export class FlickController {
         const picker = this.openPicker(a.data, a.el.getBoundingClientRect(), { x: a.x0, y: a.y0 });
         if (picker) {
           a.picker = picker;
-          picker.update(0, 0);
+          picker.update(a.x0, a.y0);
           return;
         }
       }

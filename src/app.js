@@ -13,6 +13,7 @@ import * as F from './format.js';
 import * as S from './symbolic.js';
 import { solveEquation, solvePolynomialCoeffs, solveSimultaneous } from './solve.js';
 import { integrate as quad, solveLinearSystem } from './numeric.js';
+import { keyReference, searchHelp } from './help.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -329,7 +330,7 @@ function showValue(z) {
       nodes: F.formatBaseN(v, state.ctx.base, state.ctx.wordBits).split('').map((c) => ch(c)),
       text: F.formatBaseN(v, state.ctx.base, state.ctx.wordBits),
     });
-    state.result = { kind: 'value', forms, index: 0 };
+    state.result = { kind: 'value', forms, index: 0, value: Z.C(v, 0), baseN: true };
     return;
   }
 
@@ -663,7 +664,8 @@ const SI_NONE = SI_PREFIXES.findIndex((p) => p.exp === 0);
 /** The answer as a plain real number, or null when a prefix cannot apply. */
 function prefixableValue() {
   const r = state.result;
-  if (!r || r.kind !== 'value' || !r.value || !Z.isReal(r.value)) return null;
+  if (!r || r.kind !== 'value' || r.baseN) return null;
+  if (!r.value || !Z.isReal(r.value)) return null;
   return r.value.re;
 }
 
@@ -697,56 +699,57 @@ function createSiPicker(_key, rect) {
   const value = prefixableValue();
   if (value === null) return null;
 
-  const ITEM = 30;
   const el = document.createElement('div');
   el.className = 'si-picker';
-
   const head = document.createElement('div');
   head.className = 'si-head';
   el.appendChild(head);
 
-  const list = document.createElement('div');
-  list.className = 'si-list';
   const rows = SI_PREFIXES.map((p) => {
     const row = document.createElement('div');
-    row.className = 'si-row';
-    row.innerHTML = `<b>${p.sym === '—' ? 'なし' : p.sym}</b>` +
-      `<i>${p.name}</i><span>${p.exp === 0 ? '' : `10<sup>${p.exp}</sup>`}</span>`;
-    list.appendChild(row);
+    row.className = `si-row${p.exp === 0 ? ' si-none' : ''}`;
+    row.innerHTML = `<b>${p.sym === '—' ? 'なし' : p.sym}</b><i>${p.name}</i>` +
+      `<span>${p.exp === 0 ? '' : `10<sup>${p.exp}</sup>`}</span>`;
+    el.appendChild(row);
     return row;
   });
-  el.appendChild(list);
   document.body.appendChild(el);
 
+  // Squash the rows if the ladder would not otherwise fit on this screen.
+  const room = window.innerHeight - head.offsetHeight - 12;
+  const item = Math.max(18, Math.min(27, Math.floor(room / SI_PREFIXES.length)));
+  for (const row of rows) row.style.height = `${item}px`;
+
   const width = el.offsetWidth;
-  const height = el.offsetHeight;
-  const left = Math.max(6, Math.min(window.innerWidth - width - 6,
-    rect.left + rect.width / 2 - width / 2));
-  el.style.left = `${left}px`;
+  el.style.left = `${Math.max(6, Math.min(window.innerWidth - width - 6,
+    rect.left + rect.width / 2 - width / 2))}px`;
+
+  // "None" sits on the key itself, so the ladder grows up and down from there.
+  const anchor = rect.top + rect.height / 2;
+  const wanted = anchor - head.offsetHeight - SI_NONE * item - item / 2;
+  el.style.top = `${Math.round(Math.max(6,
+    Math.min(window.innerHeight - el.offsetHeight - 6, wanted)))}px`;
+
+  // Selection is whichever row the finger is actually over, measured from the
+  // laid-out position of "none" rather than from where the touch began.
+  const noneRect = rows[SI_NONE].getBoundingClientRect();
+  const noneMid = noneRect.top + noneRect.height / 2;
+
 
   let sel = SI_NONE;
-  const headH = head.offsetHeight;
-
-  const place = () => {
-    // Keep the highlighted row beside the finger, but never off screen.
-    const wanted = rect.top + rect.height / 2 - headH - sel * ITEM - ITEM / 2;
-    const top = Math.max(6, Math.min(window.innerHeight - height - 6, wanted));
-    el.style.top = `${top}px`;
-  };
-
   const paint = () => {
     rows.forEach((r, i) => r.classList.toggle('on', i === sel));
-    head.textContent = `${F.formatReal(value, state.display).text}  →  ${prefixText(value, SI_PREFIXES[sel])}`;
-    place();
+    head.textContent = `${F.formatReal(value, state.display).text} → ${prefixText(value, SI_PREFIXES[sel])}`;
   };
 
   el.classList.add('visible');
   paint();
 
   return {
-    update(_dx, dy) {
-      // Up is the positive direction, so dragging up walks towards P.
-      const next = Math.max(0, Math.min(SI_PREFIXES.length - 1, SI_NONE + Math.round(dy / ITEM)));
+    update(_x, y) {
+      // The row the finger is over wins: upwards is larger, downwards smaller.
+      const next = Math.max(0, Math.min(SI_PREFIXES.length - 1,
+        SI_NONE + Math.round((y - noneMid) / item)));
       if (next !== sel) {
         sel = next;
         paint();
@@ -754,7 +757,7 @@ function createSiPicker(_key, rect) {
       }
     },
     commit() {
-      applyPrefix(SI_PREFIXES[sel]);
+      if (sel !== SI_NONE) applyPrefix(SI_PREFIXES[sel]);
       el.remove();
       render();
     },
@@ -766,8 +769,10 @@ function openSiPanel() {
   const value = prefixableValue();
   if (value === null) {
     openPanel('SI 接頭辞', (body) => {
-      body.innerHTML = '<p class="setup-note">計算結果の表示を kPa・MPa・mV のように言い換える機能です。'
-        + 'まず = で答えを出してから、このキーを長押ししたまま上下になぞってください。</p>';
+      const why = state.mode === 'BASE'
+        ? 'BASE-N（n進）モードでは接頭辞は使えません。MODE ▸ COMP に戻してください。'
+        : 'まず = で答えを出してから、このキーを押したまま上下になぞってください。';
+      body.innerHTML = `<p class="setup-note">計算結果の表示を kPa・MPa・mV のように言い換える機能です。${why}</p>`;
     });
     return;
   }
@@ -821,8 +826,13 @@ function setMode(name) {
 }
 
 function setBase(b) {
-  state.mode = 'BASE';
+  // On the real machine these only exist inside BASE-N. Honouring that also
+  // stops a stray downward flick on log or ln from switching the whole
+  // calculator into hex.
+  if (state.mode !== 'BASE') return;
   state.ctx.base = b;
+  state.editor.clear();
+  state.result = null;
   saveState();
 }
 
@@ -1078,30 +1088,64 @@ function openHistory() {
 
 const escapeHtml = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
+let helpKeyRef = null;
+
 function openHelp() {
-  openPanel('使い方', (body) => {
-    body.innerHTML = `
-      <div class="help">
-        <h3>フリック入力</h3>
-        <p>キーを押したまま指を動かすと、周囲に候補が表示されます。
-           <b>上＝SHIFT（黄）</b>、<b>右＝ALPHA（赤）</b>、<b>下・左＝関連機能</b>です。
-           指を離すとその機能が入力されます。SHIFT／ALPHA キーも従来どおり使えます。</p>
-        <h3>追加機能</h3>
-        <ul>
-          <li><b>方程式を解く</b>：式に <code>=</code> を入れて <code>=</code> キー、または CALC を上フリック（SOLVE）。
-              1次・2次は厳密解（√や複素数）で、それ以外は実数解を数値的に探します。</li>
-          <li><b>記号積分</b>：∫ キーを下フリック。原始関数を数式のまま返します。
-              上下限を入れれば定積分の値も出ます。閉じた式が無い場合は数値積分に切り替わります。</li>
-          <li><b>複素数</b>：MODE ▸ CMPLX。虚数単位 ⅈ は ENG キーの右フリック。
-              S⇔D で <i>a+bⅈ</i> と <i>r∠θ</i> を切り替えられます。</li>
-        </ul>
-        <h3>その他</h3>
-        <ul>
-          <li><b>S⇔D</b>：分数・√・π の厳密表示と小数表示を切り替えます。</li>
-          <li><b>▲▼</b>：数式内の上下移動。移動先が無いときは計算履歴を辿ります。</li>
-          <li>結果と設定は端末内に自動保存されます。</li>
-        </ul>
-      </div>`;
+  if (!helpKeyRef) helpKeyRef = keyReference();
+
+  openPanel('使い方 / キー一覧', (body) => {
+    const search = document.createElement('input');
+    search.type = 'search';
+    search.className = 'help-search';
+    search.placeholder = '調べたい言葉を入力（例：16進、積分、接頭辞、メモリー）';
+    search.autocomplete = 'off';
+
+    const results = document.createElement('div');
+    results.className = 'help-results';
+
+    const render2 = () => {
+      const { topics, keys } = searchHelp(search.value, helpKeyRef);
+      results.innerHTML = '';
+
+      if (!topics.length && !keys.length) {
+        results.innerHTML = '<p class="setup-note">見つかりませんでした。'
+          + '別の言葉でお試しください（キー名でも探せます）。</p>';
+        return;
+      }
+
+      for (const t of topics) {
+        const box = document.createElement('details');
+        box.className = 'help-topic';
+        if (search.value) box.open = true;
+        box.innerHTML = `<summary>${t.title}</summary><div class="help-body">${t.body}</div>`;
+        results.appendChild(box);
+      }
+
+      if (keys.length) {
+        let group = null;
+        for (const k2 of keys) {
+          if (k2.group !== group) {
+            group = k2.group;
+            const h = document.createElement('div');
+            h.className = 'help-group';
+            h.textContent = group;
+            results.appendChild(h);
+          }
+          const box = document.createElement('details');
+          box.className = 'help-key';
+          if (search.value) box.open = true;
+          const rows = k2.actions.map((a) =>
+            `<div class="help-act"><span class="help-dir">${a.dir}</span>` +
+            `<b>${escapeHtml(a.label)}</b><i>${escapeHtml(a.desc)}</i></div>`).join('');
+          box.innerHTML = `<summary><b>${escapeHtml(k2.name)}</b> キー</summary>${rows}`;
+          results.appendChild(box);
+        }
+      }
+    };
+
+    search.addEventListener('input', render2);
+    body.append(search, results);
+    render2();
   });
 }
 
@@ -1502,7 +1546,8 @@ function init() {
   buildKeypad();
 
   new FlickController($('#calculator'), fireKey, (id) => keyIndex.get(id),
-    (key, rect, origin) => (key.holdPicker ? createSiPicker(key, rect, origin) : null));
+    (key, rect, origin) => ((key.holdPicker || key.instantPicker)
+      ? createSiPicker(key, rect, origin) : null));
 
   // Tapping the expression area moves the cursor there.
   $('#expr').addEventListener('pointerdown', (e) => {

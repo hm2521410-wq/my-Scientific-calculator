@@ -174,26 +174,32 @@ for (const [name, open] of panels) {
 
 await press('ac');
 await seq('n1', 'n0', 'n0', 'n0', 'eq');
-await press('si', 'up');                       // kilo
-if (/1\s*k/.test(await result())) passed++;
-else failures.push(`SI flick kilo: ${await result()}`);
-if (/1\s*0\s*0\s*0/.test((await page.locator('#expr').innerText()).replace(/\s+/g, ' '))) passed++;
-else failures.push('SI must not alter the expression');
-
-await press('ac');
-await seq('n1', 'n0', 'n0', 'n0', 'eq');
 {
   const box = await page.locator('[data-key-id="si"]').boundingBox();
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
   await page.mouse.move(cx, cy);
   await page.mouse.down();
-  await page.waitForTimeout(620);
+  await page.waitForTimeout(150);
   const opened = await page.locator('.si-picker .si-row').count();
-  if (opened === 15) passed++; else failures.push(`SI picker rows: ${opened}`);
+  if (opened === 17) passed++; else failures.push(`SI picker rows: ${opened}`);
   const none = await page.locator('.si-head').innerText();
   if (/→\s*1000/.test(none)) passed++; else failures.push(`SI picker starts at none: ${none}`);
-  await page.mouse.move(cx, cy - 90, { steps: 6 });   // three rows up = kilo
+
+  // Every row must be selected when the finger is over it.
+  const mids = await page.evaluate(() => [...document.querySelectorAll('.si-picker .si-row')]
+    .map((r) => { const b = r.getBoundingClientRect(); return { sym: r.querySelector('b').textContent, mid: b.top + b.height / 2 }; }));
+  let tracked = 0;
+  for (const m of mids) {
+    await page.mouse.move(cx, m.mid, { steps: 2 });
+    await page.waitForTimeout(40);
+    if ((await page.locator('.si-picker .si-row.on b').innerText()) === m.sym) tracked++;
+  }
+  if (tracked === mids.length) passed++;
+  else failures.push(`SI ladder tracking: ${tracked}/${mids.length}`);
+
+  const kiloRow = mids.find((m) => m.sym === 'k');
+  await page.mouse.move(cx, kiloRow.mid, { steps: 4 });
   await page.waitForTimeout(120);
   const head = await page.locator('.si-head').innerText();
   if (/1\s*k/.test(head)) passed++; else failures.push(`SI picker drag up: ${head}`);
@@ -202,6 +208,9 @@ await seq('n1', 'n0', 'n0', 'n0', 'eq');
   if (/1\s*k/.test(await result())) passed++; else failures.push(`SI picker commit: ${await result()}`);
   if (await page.locator('.si-picker').count() === 0) passed++;
   else failures.push('SI picker did not close');
+  // The expression itself must be untouched — this is a display change only.
+  if (/1\s*0\s*0\s*0/.test((await page.locator('#expr').innerText()).replace(/\s+/g, ' '))) passed++;
+  else failures.push('SI must not alter the expression');
 }
 
 // --- Legends never overlap or get clipped -----------------------------------
@@ -231,6 +240,40 @@ for (const [w, h] of [[320, 568], [375, 667], [412, 915]]) {
 }
 await page.setViewportSize({ width: 412, height: 915 });
 await page.waitForTimeout(200);
+
+// --- Help: search finds the right topic ------------------------------------
+
+await press('ac');
+await press('help');
+await page.waitForTimeout(200);
+{
+  const topics = await page.locator('.help-topic').count();
+  const keys = await page.locator('.help-key').count();
+  if (topics >= 8 && keys >= 40) passed++;
+  else failures.push(`help index: ${topics} topics, ${keys} keys`);
+
+  for (const [query, expected] of [['16進', 'BASE-N'], ['接頭辞', 'SI'], ['積分', '積分'], ['メモリー', 'メモリー']]) {
+    await page.locator('.help-search').fill(query);
+    await page.waitForTimeout(120);
+    const first = await page.locator('.help-topic summary').first().innerText().catch(() => '');
+    if (first.includes(expected)) passed++;
+    else failures.push(`help search "${query}" → "${first}"`);
+  }
+  await page.locator('.help-search').fill('ずんだもち');
+  await page.waitForTimeout(120);
+  if ((await page.locator('.help-topic').count()) === 0) passed++;
+  else failures.push('help search should find nothing for nonsense');
+}
+await page.locator('.panel-close').click();
+await page.waitForTimeout(100);
+
+// --- BASE-N is not entered by a stray flick --------------------------------
+
+await press('ac');
+await press('log', 'down');            // "BIN" — must do nothing outside BASE-N
+await page.waitForTimeout(100);
+if (!(await page.locator('#status').innerText()).includes('BASE')) passed++;
+else failures.push('a downward flick on log switched the calculator into BASE-N');
 
 // EQN: quadratic by coefficients
 await press('mode');

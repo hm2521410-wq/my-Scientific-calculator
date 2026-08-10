@@ -1,5 +1,5 @@
 // Offline support. Bump CACHE when any shipped file changes.
-const CACHE = 'fx375es-web-v1';
+const CACHE = 'fx375es-web-v2';
 
 const ASSETS = [
   './',
@@ -57,13 +57,21 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Stale-while-revalidate for our own assets: start instantly from cache, and
+  // refresh it in the background so a deployment lands on the next launch even
+  // if CACHE above was not bumped.
   event.respondWith(
-    caches.match(request).then((hit) => hit || fetch(request).then((res) => {
-      if (res.ok && new URL(request.url).origin === self.location.origin) {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(request, copy));
-      }
-      return res;
-    }).catch(() => hit)),
+    caches.match(request).then((hit) => {
+      const fresh = fetch(request)
+        .then((res) => {
+          if (res.ok && new URL(request.url).origin === self.location.origin) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(request, copy));
+          }
+          return res;
+        })
+        .catch(() => hit);
+      return hit || fresh;
+    }),
   );
 });

@@ -40,5 +40,10 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .
+      # deploy-pages has queried the artifact API before the just-finalised
+      # upload was visible there, failing the run with "0 artifacts found".
+      # A short pause makes that race far less likely.
+      - name: Let the uploaded artifact register
+        run: sleep 10
       - id: deployment
         uses: actions/deploy-pages@v4

@@ -45,6 +45,18 @@ async function press(id, dir = 'center') {
   await page.waitForTimeout(35);
 }
 
+/** Press and hold, to reach a key's long-press action. */
+async function longPress(id) {
+  const box = await page.locator(`[data-key-id="${id}"]`).boundingBox();
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.waitForTimeout(650);
+  await page.mouse.up();
+  await page.waitForTimeout(60);
+}
+
 const seq = async (...steps) => { for (const s of steps) await press(...(Array.isArray(s) ? s : [s])); };
 const result = async () => (await page.locator('#result').innerText()).replace(/\s+/g, ' ').trim();
 
@@ -86,11 +98,11 @@ await check('Ans carries the previous result', () =>
 // --- Equation solving -------------------------------------------------------
 
 await check('quadratic solved from the = sign', () =>
-  seq(['rparen', 'right'], 'sq', 'sub', 'n5', ['rparen', 'right'], 'add', 'n6', ['calc', 'right'], 'n0', 'eq'),
+  seq(['rparen', 'right'], 'sq', 'sub', 'n5', ['rparen', 'right'], 'add', 'n6', ['solve', 'right'], 'n0', 'eq'),
 (r) => /X₁ = 2/.test(r) && /X₂ = 3/.test(r));
 
-await check('SOLVE via flick ↑ on CALC', () =>
-  seq(['rparen', 'right'], 'sq', 'sub', 'n9', ['calc', 'right'], 'n0', ['calc', 'up']),
+await check('SOLVE key solves X²−9=0', () =>
+  seq(['rparen', 'right'], 'sq', 'sub', 'n9', ['solve', 'right'], 'n0', 'solve'),
 (r) => /3/.test(r) && /−\s*3|-3/.test(r));
 
 // --- Symbolic calculus ------------------------------------------------------
@@ -122,10 +134,10 @@ await setAngle('Deg');
 
 await press('n2', 'up');   // SHIFT+2 → CMPLX
 await page.waitForTimeout(100);
-await check('(1+ⅈ)² = 2ⅈ', () => seq('lparen', 'n1', 'add', ['eng', 'right'], 'right', 'sq', 'eq'),
+await check('(1+ⅈ)² = 2ⅈ', () => seq('lparen', 'n1', 'add', 'imag', 'right', 'sq', 'eq'),
   (r) => /2\s*ⅈ/.test(r));
 await check('S⇔D switches to polar form', () =>
-  seq('lparen', 'n1', 'add', ['eng', 'right'], 'right', 'sq', 'eq', 'sd'), (r) => /∠/.test(r));
+  seq('lparen', 'n1', 'add', 'imag', 'right', 'sq', 'eq', 'sd'), (r) => /∠/.test(r));
 
 await press('mode');
 await page.waitForTimeout(150);
@@ -140,12 +152,14 @@ const panels = [
   ['CONST', () => press('n7', 'up')],
   ['CONV', () => press('n8', 'up')],
   ['CLR', () => press('n9', 'up')],
-  ['STO', () => press('rcl', 'up')],
-  ['RCL', () => press('rcl')],
+  ['STO', () => press('var', 'up')],
+  ['VAR', () => press('var')],
   ['HIST', () => press('hist')],
   ['HELP', () => press('help')],
   ['hyp', () => press('hyp')],
   ['DRG', () => press('ans', 'up')],
+  ['SI', () => press('si')],
+  ['MULTI(long press)', () => longPress('multi')],
 ];
 for (const [name, open] of panels) {
   await open();

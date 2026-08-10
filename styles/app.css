@@ -60,9 +60,9 @@ body { display: flex; justify-content: center; }
   border-radius: 8px;
   border: 2px solid #0d0f12;
   padding: 6px 8px 8px;
-  min-height: 140px;
-  height: 26vh;
-  max-height: 260px;
+  min-height: 124px;
+  height: 21vh;
+  max-height: 210px;
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
@@ -213,20 +213,30 @@ body { display: flex; justify-content: center; }
 
 .control-strip {
   display: grid;
-  grid-template-columns: 1fr 1fr 2.2fr 1fr 1fr 1fr;
-  gap: var(--gap);
-  align-items: center;
+  grid-template-columns: 1.15fr 1fr 1fr 1fr 1.15fr;
+  grid-template-rows: repeat(3, 1fr);
+  gap: 4px;
+  height: 96px;
+  flex: 0 0 auto;
 }
 
-.navpad {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 3px;
-}
+/* Left column: modifiers and MODE. Right column: AC, history, help.
+   The replay pad forms a cross across the three middle columns. */
+.pos-shift { grid-area: 1 / 1; }
+.pos-alpha { grid-area: 2 / 1; }
+.pos-mode  { grid-area: 3 / 1; }
+.pos-ac    { grid-area: 1 / 5; }
+.pos-hist  { grid-area: 2 / 5; }
+.pos-help  { grid-area: 3 / 5; }
+
+.pos-up    { grid-area: 1 / 3; }
+.pos-left  { grid-area: 2 / 2; }
+.pos-right { grid-area: 2 / 4; }
+.pos-down  { grid-area: 3 / 3; }
 
 .grid { display: grid; gap: var(--gap); }
-.fn-grid { grid-template-columns: repeat(6, 1fr); grid-auto-rows: 1fr; flex: 1 1 auto; }
-.num-grid { grid-template-columns: repeat(5, 1fr); grid-auto-rows: 1fr; flex: 1.3 1 auto; }
+.fn-grid { grid-template-columns: repeat(6, 1fr); grid-auto-rows: 1fr; flex: 1 1 0; min-height: 0; }
+.num-grid { grid-template-columns: repeat(5, 1fr); grid-auto-rows: 1fr; flex: 1.12 1 0; min-height: 0; }
 
 .key {
   position: relative;
@@ -237,7 +247,7 @@ body { display: flex; justify-content: center; }
   color: var(--key-text);
   font: inherit;
   padding: 0;
-  min-height: 42px;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -245,18 +255,41 @@ body { display: flex; justify-content: center; }
   box-shadow: 0 2px 0 rgba(0, 0, 0, .45);
   transition: transform .04s, filter .04s;
 }
-.num-grid .key { min-height: 48px; }
+.num-grid .key { min-height: 0; }
 .key.pressed { transform: translateY(2px); filter: brightness(1.35); box-shadow: none; }
 
-.key .main { font-size: 14px; font-weight: 600; line-height: 1.05; text-align: center; }
-.num-grid .key.num .main { font-size: 21px; font-weight: 500; }
-.key.op .main { font-size: 20px; }
-.key.ctrl .main { font-size: 15px; font-weight: 700; }
-.fn-grid .key .main { font-size: 12.5px; }
+.key .main {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.05;
+  text-align: center;
+  /* Keep the main legend clear of the hint gutters on every edge. */
+  padding: 8px 14px;
+  max-width: 100%;
+  overflow: hidden;
+}
+.num-grid .key.num .main { font-size: 24px; font-weight: 500; padding: 8px 11px; }
+/* Wider legends (×10□, Ans) need a smaller face so they stay on one line. */
+.num-grid .key.wide .main { font-size: 17px; white-space: nowrap; }
+.ico-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: middle;
+}
+.key.op .main { font-size: 23px; }
+.key.ctrl .main { font-size: 17px; font-weight: 700; }
+.fn-grid .key .main { font-size: 14px; }
+/* Keys with no side hints can use the full width. */
+.fn-grid .key:not(:has(.hint-left)):not(:has(.hint-right)) .main { padding-left: 3px; padding-right: 3px; }
+.key:not(:has(.hint-up)) .main { padding-top: 3px; }
+.key:not(:has(.hint-down)) .main { padding-bottom: 3px; }
 
 .key .hint {
   position: absolute;
-  font-size: 7px;
+  font-size: 7.5px;
   line-height: 1;
   opacity: .85;
   max-width: 96%;
@@ -280,17 +313,79 @@ body { display: flex; justify-content: center; }
 .key.op { background: linear-gradient(180deg, #39424e 0%, #262d36 100%); }
 .key.ctrl.ac, .key.ctrl.del { background: linear-gradient(180deg, #4f7f4a 0%, #33552f 100%); }
 .key.ctrl.equals { background: linear-gradient(180deg, #2f6fd0 0%, #204d94 100%); }
-.key.mod { min-height: 30px; }
+.key.mod { min-height: 26px; }
 .key.mod .main { font-size: 10.5px; }
 .key.shift { background: linear-gradient(180deg, #6b5a12 0%, #4a3d08 100%); }
 .key.shift .main { color: var(--shift); }
 .key.alpha { background: linear-gradient(180deg, #6d2b26 0%, #4a1c18 100%); }
 .key.alpha .main { color: var(--alpha); }
 .key.mod.on { outline: 2px solid #fff; }
-.key.nav { min-height: 30px; }
-.key.nav .main { font-size: 11px; }
-.key.sys { min-height: 30px; }
-.key.sys .main { font-size: 10px; }
+.key.nav { min-height: 0; background: linear-gradient(180deg, #4a525d 0%, #333941 100%); }
+.key.nav .main { font-size: 15px; }
+.key.sys { min-height: 0; }
+.key.sys .main { font-size: 11px; }
+.key.tall { min-height: 0; }
+.key.ctrl.ac .main { font-size: 19px; }
+
+/* Legend glyphs: boxes, stacked fractions, d/dx and the radical. */
+.bx {
+  display: inline-block;
+  width: .58em;
+  height: .58em;
+  border: 1.3px solid currentColor;
+  border-radius: 1px;
+  vertical-align: .04em;
+}
+.bx-s {
+  display: inline-block;
+  width: .5em;
+  height: .5em;
+  border: 1.2px solid currentColor;
+  border-radius: 1px;
+}
+.key .main sup { font-size: .66em; vertical-align: super; line-height: 0; }
+.key .main sub { font-size: .62em; vertical-align: sub; line-height: 0; }
+
+.ico-frac {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  vertical-align: middle;
+}
+.ico-frac i {
+  display: block;
+  width: 13px;
+  height: 6px;
+  border: 1.3px solid currentColor;
+  border-radius: 1px;
+}
+.ico-frac i:first-child { background: currentColor; }
+
+.ico-ddx {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+  font-style: italic;
+  vertical-align: middle;
+}
+.ico-ddx i:first-child { border-bottom: 1.3px solid currentColor; padding: 0 2px 1px; }
+.ico-ddx i:last-child { padding-top: 1px; }
+
+.ico-root { display: inline-flex; align-items: center; gap: 1px; }
+
+/* A key with a long-press action gets a small corner tick. */
+.key.has-hold::after {
+  content: '';
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-bottom: 4px solid rgba(255, 255, 255, .5);
+}
 
 /* ------------------------------------------------------------ flick popup */
 
@@ -463,13 +558,16 @@ body { display: flex; justify-content: center; }
 }
 
 @media (min-height: 780px) {
-  .screen { min-height: 170px; }
+  .screen { min-height: 150px; }
+  .control-strip { height: 108px; }
   .expr { font-size: 24px; }
   .key { min-height: 48px; }
   .num-grid .key { min-height: 54px; }
 }
 @media (max-height: 620px) {
   .screen { min-height: 104px; height: 24vh; }
+  .control-strip { height: 84px; }
+  .key .main { padding: 6px 13px; }
   .expr { font-size: 19px; max-height: 62px; }
   .result { font-size: 20px; }
   .key { min-height: 36px; }

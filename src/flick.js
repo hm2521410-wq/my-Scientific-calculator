@@ -5,6 +5,7 @@
 const THRESHOLD = 22;      // px of travel before a direction is committed
 const REPEAT_DELAY = 420;  // ms before auto-repeat starts
 const REPEAT_RATE = 55;    // ms between repeats
+const LONG_PRESS = 480;    // ms held still before a key's long-press action fires
 
 export class FlickController {
   /**
@@ -19,6 +20,7 @@ export class FlickController {
     this.active = null;
     this.popup = null;
     this.repeatTimer = null;
+    this.longPressTimer = null;
 
     root.addEventListener('pointerdown', this.onDown, { passive: false });
     window.addEventListener('pointermove', this.onMove, { passive: false });
@@ -46,6 +48,7 @@ export class FlickController {
 
     if (hasFlickTargets(data)) this.showPopup(btn, data);
     this.startRepeat(data);
+    this.startLongPress(data);
   };
 
   onMove = (e) => {
@@ -67,6 +70,7 @@ export class FlickController {
       // Fall back to the centre action when the direction is unassigned.
       if (!a.data[dir]) dir = 'center';
     }
+    if (dist > 6) this.stopLongPress();
     if (dir !== a.dir) {
       a.dir = dir;
       a.moved = dir !== 'center';
@@ -90,12 +94,34 @@ export class FlickController {
     const a = this.active;
     this.active = null;
     this.stopRepeat();
+    this.stopLongPress();
     this.hidePopup();
     if (!a) return;
     a.el.classList.remove('pressed');
     if (dir === null) return;
+    if (a.firedByLongPress) return;                  // the hold already acted
     if (a.firedByRepeat && dir === 'center') return; // already delivered
     this.onFire(a.data, dir);
+  }
+
+  // --- long press -----------------------------------------------------------
+
+  startLongPress(data) {
+    if (!data.longPress) return;
+    this.longPressTimer = setTimeout(() => {
+      const a = this.active;
+      if (!a || a.dir !== 'center') return;
+      a.firedByLongPress = true;
+      this.stopRepeat();
+      this.hidePopup();
+      a.el.classList.remove('pressed');
+      haptic(14);
+      this.onFire(a.data, 'longPress');
+    }, LONG_PRESS);
+  }
+
+  stopLongPress() {
+    if (this.longPressTimer) { clearTimeout(this.longPressTimer); this.longPressTimer = null; }
   }
 
   // --- auto-repeat for DEL and the arrow keys -------------------------------

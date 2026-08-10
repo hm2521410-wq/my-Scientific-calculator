@@ -2,14 +2,17 @@
 
 import { Editor, renderList, scaleDelimiters, caretMap, nodesFromAst, nodesFromResultText, ch, makeNode, toPlainText } from './editor.js';
 import { FlickController } from './flick.js';
-import { FUNCTION_ROWS, NUMERIC_ROWS, ALL_KEYS, SHIFT_KEY, ALPHA_KEY, NAV_KEYS, TOP_KEYS, MENUS, CONSTANTS, CONVERSIONS } from './keys.js';
+import {
+  FUNCTION_ROWS, NUMERIC_ROWS, SHIFT_KEY, ALPHA_KEY, NAV_KEYS, TOP_KEYS,
+  MENUS, CONSTANTS, CONVERSIONS, SI_PREFIXES, STAT_TYPES, EQN_TYPES,
+} from './keys.js';
 import { parse, CalcError, VARIABLES, stringify } from './parser.js';
 import { makeContext, evaluate, roundToSig } from './evaluator.js';
 import * as Z from './complex.js';
 import * as F from './format.js';
 import * as S from './symbolic.js';
 import { solveEquation, solvePolynomialCoeffs, solveSimultaneous } from './solve.js';
-import { integrate as quad } from './numeric.js';
+import { integrate as quad, solveLinearSystem } from './numeric.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -17,7 +20,7 @@ const state = {
   editor: new Editor(),
   ctx: makeContext(),
   mode: 'COMP',
-  display: { ...F.DEFAULT_DISPLAY },
+  display: { ...F.DEFAULT_DISPLAY, fracMode: 'd/c', complexPolar: false },
   shift: false,
   alpha: false,
   result: null,
@@ -71,9 +74,11 @@ function buildKey(def) {
   btn.dataset.keyId = def.id;
   btn.type = 'button';
 
+  if (def.span) btn.style.gridColumn = `span ${def.span}`;
+
   const main = document.createElement('span');
   main.className = 'legend main';
-  main.innerHTML = def.center?.label ?? def.label ?? '';
+  main.innerHTML = def.center?.html ?? def.center?.label ?? def.label ?? '';
   btn.appendChild(main);
 
   for (const dir of ['up', 'right', 'down', 'left']) {
@@ -81,9 +86,10 @@ function buildKey(def) {
     if (!item) continue;
     const s = document.createElement('span');
     s.className = `legend hint hint-${dir} ${item.tone ? `tone-${item.tone}` : ''}`;
-    s.textContent = item.short || item.label;
+    s.innerHTML = item.short || item.label;
     btn.appendChild(s);
   }
+  if (def.longPress) btn.classList.add('has-hold');
   return btn;
 }
 
@@ -94,57 +100,48 @@ function buildKeypad() {
   const numGrid = $('#num-grid');
   for (const row of NUMERIC_ROWS) for (const key of row) numGrid.appendChild(buildKey(key));
 
-  // DEL and the arrows auto-repeat when held.
-  for (const id of ['del', 'left', 'right', 'up', 'down']) {
-    const d = keyIndex.get(id);
-    if (d) d.repeat = true;
-  }
+  // DEL auto-repeats when held; the arrows are set up in the control strip.
+  const del = keyIndex.get('del');
+  if (del) del.repeat = true;
 }
 
 function buildControlStrip() {
   const strip = $('#control-strip');
-  for (const def of [SHIFT_KEY, ALPHA_KEY]) {
-    keyIndex.set(def.id, { ...def, center: { label: def.label, act: def.act } });
-    const btn = document.createElement('button');
-    btn.className = `key ${def.cls}`;
-    btn.dataset.keyId = def.id;
-    btn.type = 'button';
-    btn.innerHTML = `<span class="legend main">${def.label}</span>`;
-    strip.appendChild(btn);
-  }
 
-  const pad = document.createElement('div');
-  pad.className = 'navpad';
+  // SHIFT / ALPHA / MODE occupy the left column, the replay cross the middle,
+  // AC / HIST / ? the right column. AC now sits far from DEL and =.
+  const place = (def, cls) => {
+    keyIndex.set(def.id, def);
+    const btn = buildKey(def);
+    btn.classList.add(cls);
+    strip.appendChild(btn);
+    return btn;
+  };
+
+  place({ ...SHIFT_KEY, center: { label: SHIFT_KEY.label, act: SHIFT_KEY.act } }, 'pos-shift');
+  place({ ...ALPHA_KEY, center: { label: ALPHA_KEY.label, act: ALPHA_KEY.act } }, 'pos-alpha');
+
   for (const def of NAV_KEYS) {
-    keyIndex.set(def.id, { ...def, center: { label: def.label, act: def.act }, repeat: true });
-    const btn = document.createElement('button');
-    btn.className = `key ${def.cls} nav-${def.id}`;
-    btn.dataset.keyId = def.id;
-    btn.type = 'button';
-    btn.innerHTML = `<span class="legend main">${def.label}</span>`;
-    pad.appendChild(btn);
+    place({ ...def, center: { label: def.label, act: def.act }, repeat: true }, `pos-${def.id}`);
   }
-  strip.appendChild(pad);
 
-  for (const def of TOP_KEYS) {
-    keyIndex.set(def.id, {
-      ...def,
-      center: { label: def.label, act: def.act },
-      up: def.supAct ? { label: def.sup, act: def.supAct, tone: 'shift' } : null,
-    });
-    const btn = document.createElement('button');
-    btn.className = `key ${def.cls}`;
-    btn.dataset.keyId = def.id;
-    btn.type = 'button';
-    btn.innerHTML = `<span class="legend main">${def.label}</span>` +
-      (def.sup ? `<span class="legend hint hint-up tone-shift">${def.sup}</span>` : '');
-    strip.appendChild(btn);
-  }
+  const byId = Object.fromEntries(TOP_KEYS.map((d) => [d.id, d]));
+  place(byId.mode, 'pos-mode');
+  place(byId.ac, 'pos-ac');
+  place(byId.hist, 'pos-hist');
+  place(byId.help, 'pos-help');
 }
 
 // --- Action dispatch --------------------------------------------------------
 
 function fireKey(def, dir) {
+  if (dir === 'longPress') {
+    if (!def.longPress) return;
+    state.shift = false; state.alpha = false;
+    dispatch(def.longPress);
+    render();
+    return;
+  }
   // The physical modifiers redirect a tap to the flick legends.
   let direction = dir;
   if (dir === 'center') {
@@ -242,6 +239,7 @@ function command(name, arg) {
     case 'engBack': engShift(-1); return;
     case 'todms': showAsDMS(); return;
 
+    case 'si': insertSiPrefix(arg); return;
     case 'base': setBase(arg); return;
     case 'mplus': memoryAdd(1); return;
     case 'mminus': memoryAdd(-1); return;
@@ -318,11 +316,11 @@ function showValue(z) {
   }
 
   if (!Z.isReal(z)) {
-    const rect = F.formatComplex(z, state.display, false);
-    const polar = F.formatComplex(z, state.display, true);
-    forms.push({ label: 'a+bⅈ', nodes: nodesFromResultText(rect), text: rect });
-    forms.push({ label: 'r∠θ', nodes: nodesFromResultText(polar), text: polar });
-    state.result = { kind: 'value', forms, index: 0 };
+    const rect = { label: 'a+bⅈ', text: F.formatComplex(z, state.display, false) };
+    const polar = { label: 'r∠θ', text: F.formatComplex(z, state.display, true) };
+    const ordered = state.display.complexPolar ? [polar, rect] : [rect, polar];
+    for (const f of ordered) forms.push({ ...f, nodes: nodesFromResultText(f.text) });
+    state.result = { kind: 'value', forms, index: 0, value: z };
     return;
   }
 
@@ -335,7 +333,12 @@ function showValue(z) {
   forms.push({ label: 'decimal', nodes: nodesFromResultText(dec.text), text: dec.text });
 
   const mixed = exact ? F.toMixed(exact) : null;
-  if (mixed) forms.push({ label: 'mixed', nodes: nodesFromAst(mixed), text: stringify(mixed) });
+  if (mixed) {
+    const entry = { label: 'a b/c', nodes: nodesFromAst(mixed), text: stringify(mixed) };
+    // "ab/c" in SETUP means the mixed form leads.
+    if (state.display.fracMode === 'ab/c') forms.unshift(entry);
+    else forms.push(entry);
+  }
 
   state.result = { kind: 'value', forms, index: 0, value: z };
 
@@ -632,6 +635,41 @@ function runCalc() {
   });
 }
 
+// --- SI prefixes ------------------------------------------------------------
+
+/** Insert ×10ⁿ for a prefix, so "5 k" reads as 5×10³. */
+function insertSiPrefix(exp) {
+  beginEdit();
+  if (exp === 0) return;
+  const digits = String(Math.abs(exp)).split('').map((c) => ch(c));
+  if (exp < 0) digits.unshift(ch('−', '-'));
+  state.editor.insertTemplate('e10', { e: digits });
+}
+
+/** Re-express the current answer with a chosen prefix (1500 Pa → 1.5 kPa). */
+function showWithPrefix(prefix) {
+  const r = state.result;
+  if (!r || !r.value || !Z.isReal(r.value)) return false;
+  const scaled = r.value.re / Math.pow(10, prefix.exp);
+  const mant = F.formatReal(scaled, { ...state.display, mode: 'norm', norm: 2 }).text;
+  const text = prefix.exp === 0 ? mant : `${mant} ${prefix.sym}`;
+  r.forms = [{ label: `10^${prefix.exp}`, nodes: text.split('').map((c) => ch(c)), text }];
+  r.index = 0;
+  return true;
+}
+
+function openSiPanel() {
+  const canConvert = !!(state.result && state.result.value && Z.isReal(state.result.value));
+  const title = canConvert ? 'SI 接頭辞 — 結果を換算' : 'SI 接頭辞 — 式に挿入';
+  openList(title, SI_PREFIXES.map((p) => ({
+    html: `<b>${p.sym}</b> <small>${p.name}</small><span class="panel-val">10<sup>${p.exp}</sup></span>`,
+    p,
+  })), (item) => {
+    if (canConvert) showWithPrefix(item.p);
+    else insertSiPrefix(item.p.exp);
+  });
+}
+
 // --- Memory / variables -----------------------------------------------------
 
 function memoryAdd(sign) {
@@ -769,18 +807,26 @@ function openMenu(name) {
       openList('CLR', MENUS.clr.items, (i) => dispatch(i.act));
       return;
     case 'setup': openSetup(); return;
+    case 'si': openSiPanel(); return;
+    case 'vars': openVarPanel('変数を入力', false); return;
+    case 'multi':
+      openList(MENUS.multi.title, MENUS.multi.items, (i) => dispatch(i.act));
+      return;
     case 'const':
-      openList('CONST — 物理定数', CONSTANTS.map((c) => ({
-        html: `<b>${c.sym}</b> <small>${c.name}</small><span class="panel-val">${c.value}${c.unit ? ' ' + c.unit : ''}</span>`,
+      openList('CONST — 科学定数（40種）', CONSTANTS.map((c) => ({
+        html: `<b>${c.id} ${c.sym}</b> <small>${c.name}</small>` +
+          `<span class="panel-val">${c.value}${c.unit ? ' ' + c.unit : ''}</span>`,
         c,
       })), (i) => {
         beginEdit();
-        for (const d of String(i.c.value)) state.editor.insertChar(d === 'e' ? '⏨' : d);
+        insertNumberLiteral(i.c.value);
       });
       return;
     case 'conv':
       openList('CONV — 単位換算', CONVERSIONS.map((c) => ({
-        html: `<b>${c.from} ▸ ${c.to}</b><span class="panel-val">×${Number(c.factor.toPrecision(10))}</span>`,
+        html: `<b>${c.id}</b> ${c.from} ▸ ${c.to}` +
+          `<span class="panel-val">${c.factor ? `×${Number(c.factor.toPrecision(10))}` : '(温度)'}` +
+          `${c.note ? ` ${c.note}` : ''}</span>`,
         c,
       })), (i) => applyConversion(i.c));
       return;
@@ -792,11 +838,24 @@ function openMenu(name) {
   }
 }
 
+/** Type a numeric literal, routing the exponent through the ×10ⁿ template. */
+function insertNumberLiteral(value) {
+  const [mantissa, exponent] = String(value).split('e');
+  for (const d of mantissa) state.editor.insertChar(d === '-' ? '−' : d, d);
+  if (exponent !== undefined) {
+    const digits = exponent.replace('+', '');
+    const nodes = digits.split('').map((c) => ch(c === '-' ? '−' : c, c === '-' ? '-' : c));
+    state.editor.insertTemplate('e10', { e: nodes });
+  }
+}
+
 function applyConversion(c) {
   try {
     const ast = state.editor.isEmpty() ? null : parseCurrent();
     const v = ast ? evaluate(ast, state.ctx) : state.ctx.ans;
-    const out = Z.mul(v, Z.C(c.factor, 0));
+    const out = c.convert
+      ? Z.C(c.convert(Z.isReal(v) ? v.re : NaN), 0)
+      : Z.mul(v, Z.C(c.factor, 0));
     state.ctx.preans = state.ctx.ans;
     state.ctx.ans = out;
     showValue(out);
@@ -839,7 +898,7 @@ function openSetup() {
       for (const o of options) {
         const b = document.createElement('button');
         b.className = 'setup-opt' + (get() === o.value ? ' on' : '');
-        b.textContent = o.label;
+        b.innerHTML = o.label;
         b.onclick = () => { set(o.value); saveState(); openSetup(); render(); };
         row.appendChild(b);
       }
@@ -847,25 +906,45 @@ function openSetup() {
       body.appendChild(wrap);
     };
 
-    group('角度単位', [
-      { label: 'Deg', value: 'deg' }, { label: 'Rad', value: 'rad' }, { label: 'Gra', value: 'gra' },
+    group('角度設定', [
+      { label: 'Deg（度）', value: 'deg' },
+      { label: 'Rad（ラジアン）', value: 'rad' },
+      { label: 'Gra（グラード）', value: 'gra' },
     ], () => state.ctx.angle, (v) => { state.ctx.angle = v; });
 
-    group('表示形式', [
-      { label: 'Norm 1', value: 'norm1' }, { label: 'Norm 2', value: 'norm2' },
-      { label: 'Fix 3', value: 'fix3' }, { label: 'Sci 5', value: 'sci5' },
+    group('表示桁数設定', [
+      { label: 'Norm 1', value: 'norm1' },
+      { label: 'Norm 2', value: 'norm2' },
+      { label: 'Fix', value: 'fix' },
+      { label: 'Sci', value: 'sci' },
     ], () => {
       const d = state.display;
-      if (d.mode === 'norm') return `norm${d.norm}`;
-      if (d.mode === 'fix') return `fix${d.digits}`;
-      if (d.mode === 'sci') return `sci${d.digits}`;
-      return '';
+      return d.mode === 'norm' ? `norm${d.norm}` : d.mode;
     }, (v) => {
-      if (v === 'norm1') state.display = { mode: 'norm', norm: 1, digits: 10 };
-      else if (v === 'norm2') state.display = { mode: 'norm', norm: 2, digits: 10 };
-      else if (v === 'fix3') state.display = { mode: 'fix', norm: 1, digits: 3 };
-      else if (v === 'sci5') state.display = { mode: 'sci', norm: 1, digits: 5 };
+      if (v === 'norm1') state.display = { ...state.display, mode: 'norm', norm: 1, digits: 10 };
+      else if (v === 'norm2') state.display = { ...state.display, mode: 'norm', norm: 2, digits: 10 };
+      else if (v === 'fix') state.display = { ...state.display, mode: 'fix', digits: 3 };
+      else state.display = { ...state.display, mode: 'sci', digits: 5 };
     });
+
+    if (state.display.mode === 'fix' || state.display.mode === 'sci') {
+      const isFix = state.display.mode === 'fix';
+      const digits = isFix ? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+      group(isFix ? '小数点以下桁数（Fix 0〜9）' : '有効桁数（Sci 1〜10）',
+        digits.map((n) => ({ label: String(n), value: n })),
+        () => state.display.digits,
+        (v) => { state.display = { ...state.display, digits: v }; });
+    }
+
+    group('分数表示設定', [
+      { label: 'ab/c（帯分数）', value: 'ab/c' },
+      { label: 'd/c（仮分数）', value: 'd/c' },
+    ], () => state.display.fracMode, (v) => { state.display = { ...state.display, fracMode: v }; });
+
+    group('複素数表示設定', [
+      { label: 'a+bⅈ（直交座標）', value: false },
+      { label: 'r∠θ（極座標）', value: true },
+    ], () => state.display.complexPolar, (v) => { state.display = { ...state.display, complexPolar: v }; });
 
     group('BASE-N の基数', [
       { label: 'Dec', value: 10 }, { label: 'Hex', value: 16 },
@@ -874,7 +953,8 @@ function openSetup() {
 
     const note = document.createElement('p');
     note.className = 'setup-note';
-    note.textContent = 'フリック入力：キーを押したまま上下左右へなぞると、黄色（SHIFT）や赤（ALPHA）の機能が直接入力できます。';
+    note.textContent = 'フリック入力：キーを押したまま上下左右へなぞると、黄色（SHIFT）や赤（ALPHA）の機能が直接入力できます。'
+      + '「接頭辞」キーは長押しで k / M / m / µ などの一覧が開きます。';
     body.appendChild(note);
   });
 }
@@ -920,20 +1000,17 @@ function openHelp() {
 // --- EQN / TABLE / STAT panels ---------------------------------------------
 
 function openEqnPanel() {
-  openPanel('EQN — 方程式', (body) => {
+  openPanel('EQN — 方程式計算', (body) => {
     const choose = document.createElement('div');
     choose.className = 'panel-list';
-    const kinds = [
-      { label: '連立2元1次方程式', run: () => simultaneousForm(2) },
-      { label: '連立3元1次方程式', run: () => simultaneousForm(3) },
-      { label: '2次方程式  aх²+bx+c=0', run: () => polyForm(2) },
-      { label: '3次方程式  ax³+bx²+cx+d=0', run: () => polyForm(3) },
-    ];
-    for (const kind of kinds) {
+    for (const type of EQN_TYPES) {
       const b = document.createElement('button');
       b.className = 'panel-item';
-      b.textContent = kind.label;
-      b.onclick = () => { body.innerHTML = ''; body.appendChild(kind.run()); };
+      b.innerHTML = `<b>${type.id}</b> ${type.label}<span class="panel-val">${type.name}</span>`;
+      b.onclick = () => {
+        body.innerHTML = '';
+        body.appendChild(type.kind === 'sim' ? simultaneousForm(type.n) : polyForm(type.deg));
+      };
       choose.appendChild(b);
     }
     body.appendChild(choose);
@@ -1018,23 +1095,25 @@ function polyForm(deg) {
 }
 
 function openTablePanel() {
-  openPanel('TABLE — 数表', (body) => {
+  openPanel('TABLE — 数値テーブル', (body) => {
     const form = document.createElement('div');
     form.className = 'panel-form';
-    const mk = (label, value) => {
+    const mk = (label, value, placeholder) => {
       const row = document.createElement('label');
       row.className = 'panel-row';
       row.innerHTML = `<span class="panel-key">${label}</span>`;
       const i = document.createElement('input');
       i.type = 'text';
       i.value = value;
+      if (placeholder) i.placeholder = placeholder;
       row.appendChild(i);
       form.appendChild(row);
       return i;
     };
     const fInput = mk('f(x)', state.editor.isEmpty() ? 'X^2' : currentSource());
+    const gInput = mk('g(x)', '', '（任意）');
     const startInput = mk('Start', '1');
-    const endInput = mk('End', '10');
+    const endInput = mk('End', '5');
     const stepInput = mk('Step', '1');
     const out = document.createElement('div');
     out.className = 'panel-output table-out';
@@ -1043,16 +1122,18 @@ function openTablePanel() {
     go.textContent = '表を作る';
     go.onclick = () => {
       try {
-        const ast = parse(fInput.value);
-        const f = makeRealFn(ast);
-        const [a, b, s] = [startInput, endInput, stepInput].map((i) => evaluate(parse(i.value), state.ctx).re);
-        if (!(s > 0) || b < a) { out.textContent = 'Range ERROR'; return; }
-        if ((b - a) / s > 200) { out.textContent = 'Range ERROR (行数が多すぎます)'; return; }
+        const f = makeRealFn(parse(fInput.value));
+        const g = gInput.value.trim() ? makeRealFn(parse(gInput.value)) : null;
+        const [a, b, st] = [startInput, endInput, stepInput]
+          .map((i) => evaluate(parse(i.value), state.ctx).re);
+        if (!(st > 0) || b < a) { out.textContent = 'Range ERROR'; return; }
+        if ((b - a) / st > 200) { out.textContent = 'Range ERROR（行数が多すぎます）'; return; }
+        const fmt = (v) => F.formatReal(v, state.display).text;
         const rows = [];
-        for (let x = a; x <= b + 1e-12; x += s) {
-          rows.push(`${F.formatReal(x, state.display).text}\t${F.formatReal(f(x), state.display).text}`);
+        for (let x = a; x <= b + 1e-12; x += st) {
+          rows.push(`${fmt(x)}\t${fmt(f(x))}${g ? `\t${fmt(g(x))}` : ''}`);
         }
-        out.textContent = `x\tf(x)\n${rows.join('\n')}`;
+        out.textContent = `x\tf(x)${g ? '\tg(x)' : ''}\n${rows.join('\n')}`;
       } catch (e) {
         out.textContent = e instanceof CalcError ? `${e.kind}: ${e.detail}` : String(e);
       }
@@ -1062,59 +1143,133 @@ function openTablePanel() {
 }
 
 function openStatPanel() {
-  openPanel('STAT — 統計', (body) => {
+  let type = STAT_TYPES[0];
+  const build = (body) => {
+    body.innerHTML = '';
+    const picker = document.createElement('div');
+    picker.className = 'setup-options';
+    for (const t of STAT_TYPES) {
+      const b = document.createElement('button');
+      b.className = 'setup-opt' + (t.id === type.id ? ' on' : '');
+      b.innerHTML = `${t.id} ${t.label}`;
+      b.title = t.name;
+      b.onclick = () => { type = t; build(body); };
+      picker.appendChild(b);
+    }
+
     const info = document.createElement('p');
     info.className = 'setup-note';
-    info.textContent = 'データを1行につき「x」または「x, y」の形式で入力してください。';
+    info.textContent = type.vars === 1
+      ? `${type.name}：1行に1つの標本データ x を入力してください。`
+      : `${type.name}：1行に「x, y」の形式で入力してください。`;
+
     const ta = document.createElement('textarea');
     ta.className = 'stat-input';
     ta.rows = 6;
-    ta.placeholder = '1, 2\n2, 4.1\n3, 5.9';
+    ta.placeholder = type.vars === 1 ? '55\n54\n51\n55' : '1, 2\n2, 4.1\n3, 5.9';
     const out = document.createElement('div');
     out.className = 'panel-output';
     const go = document.createElement('button');
     go.className = 'panel-btn primary';
     go.textContent = '計算する';
-    go.onclick = () => { out.textContent = computeStats(ta.value); };
-    body.append(info, ta, go, out);
-  });
+    go.onclick = () => { out.textContent = computeStats(ta.value, type); };
+    body.append(picker, info, ta, go, out);
+  };
+  openPanel('STAT — 統計／回帰計算', build);
 }
 
-function computeStats(text) {
+const sum = (a) => a.reduce((s2, v) => s2 + v, 0);
+
+/** Least squares through a variable transform, as the machine's models do. */
+function regress(xs, ys, model) {
+  const n = xs.length;
+  const fmtModel = {
+    linear: 'y = A + Bx', quad: 'y = A + Bx + Cx²', ln: 'y = A + B·ln x',
+    exp: 'y = A·e^(Bx)', ab: 'y = A·B^x', pow: 'y = A·x^B', inv: 'y = A + B/x',
+  }[model];
+
+  if (model === 'quad') {
+    // Normal equations for a quadratic fit.
+    const p = (k) => sum(xs.map((x) => Math.pow(x, k)));
+    const q = (k) => sum(xs.map((x, i) => Math.pow(x, k) * ys[i]));
+    const sol = solveLinearSystem(
+      [[n, p(1), p(2)], [p(1), p(2), p(3)], [p(2), p(3), p(4)]],
+      [sum(ys), q(1), q(2)],
+    );
+    if (!sol) return null;
+    return { model: fmtModel, coeffs: { A: sol[0], B: sol[1], C: sol[2] } };
+  }
+
+  const tx = { ln: Math.log, pow: Math.log, inv: (v) => 1 / v }[model] || ((v) => v);
+  const ty = { exp: Math.log, ab: Math.log, pow: Math.log }[model] || ((v) => v);
+  const X = xs.map(tx);
+  const Y = ys.map(ty);
+  if (X.some((v) => !Number.isFinite(v)) || Y.some((v) => !Number.isFinite(v))) return null;
+
+  const mx = sum(X) / n, my = sum(Y) / n;
+  const sxx = sum(X.map((v) => (v - mx) ** 2));
+  const sxy = sum(X.map((v, i) => (v - mx) * (Y[i] - my)));
+  const syy = sum(Y.map((v) => (v - my) ** 2));
+  if (sxx === 0) return null;
+  const b = sxy / sxx;
+  const a = my - b * mx;
+  const r = sxy / Math.sqrt(sxx * syy);
+
+  const coeffs = model === 'exp' ? { A: Math.exp(a), B: b }
+    : model === 'ab' ? { A: Math.exp(a), B: Math.exp(b) }
+      : model === 'pow' ? { A: Math.exp(a), B: b }
+        : { A: a, B: b };
+  return { model: fmtModel, coeffs, r };
+}
+
+function computeStats(text, type = STAT_TYPES[0]) {
   const xs = [], ys = [];
   for (const line of text.split('\n')) {
     const t = line.trim();
     if (!t) continue;
     const parts = t.split(/[,\s]+/).map(Number);
-    if (Number.isNaN(parts[0])) return 'Syntax ERROR';
+    if (!Number.isFinite(parts[0])) return 'Syntax ERROR';
     xs.push(parts[0]);
-    if (parts.length > 1 && !Number.isNaN(parts[1])) ys.push(parts[1]);
+    if (type.vars === 2) {
+      if (!Number.isFinite(parts[1])) return 'Syntax ERROR（x, y の形式で入力してください）';
+      ys.push(parts[1]);
+    }
   }
   const n = xs.length;
   if (!n) return 'データがありません';
-  const sum = (a) => a.reduce((s, v) => s + v, 0);
+
+  const fmt = (v) => (Number.isFinite(v) ? F.formatReal(v, state.display).text : '—');
   const sx = sum(xs), sx2 = sum(xs.map((v) => v * v));
   const mx = sx / n;
-  const popSd = Math.sqrt(sx2 / n - mx * mx);
-  const sampSd = n > 1 ? Math.sqrt((sx2 - n * mx * mx) / (n - 1)) : NaN;
-  const fmt = (v) => (Number.isFinite(v) ? F.formatReal(v, state.display).text : '—');
+  const popSd = Math.sqrt(Math.max(0, sx2 / n - mx * mx));
+  const sampSd = n > 1 ? Math.sqrt(Math.max(0, (sx2 - n * mx * mx) / (n - 1))) : NaN;
   const lines = [
     `n = ${n}`,
     `Σx = ${fmt(sx)}`,
     `Σx² = ${fmt(sx2)}`,
     `x̄ = ${fmt(mx)}`,
-    `σx (母標準偏差) = ${fmt(popSd)}`,
-    `sx (標本標準偏差) = ${fmt(sampSd)}`,
+    `σx = ${fmt(popSd)}   (母標準偏差)`,
+    `sx = ${fmt(sampSd)}   (標本標準偏差)`,
   ];
-  if (ys.length === n && n > 1) {
+
+  if (type.vars === 2) {
     const sy = sum(ys), sy2 = sum(ys.map((v) => v * v));
-    const sxy = sum(xs.map((v, i) => v * ys[i]));
     const my = sy / n;
-    const B = (sxy - n * mx * my) / (sx2 - n * mx * mx);
-    const A = my - B * mx;
-    const r = (sxy - n * mx * my) /
-      Math.sqrt((sx2 - n * mx * mx) * (sy2 - n * my * my));
-    lines.push('', `ȳ = ${fmt(my)}`, `回帰直線 y = A + Bx`, `A = ${fmt(A)}`, `B = ${fmt(B)}`, `r = ${fmt(r)}`);
+    lines.push('',
+      `Σy = ${fmt(sy)}`, `Σy² = ${fmt(sy2)}`,
+      `Σxy = ${fmt(sum(xs.map((v, i) => v * ys[i])))}`,
+      `ȳ = ${fmt(my)}`,
+      `σy = ${fmt(Math.sqrt(Math.max(0, sy2 / n - my * my)))}`);
+
+    const fit = n > 1 ? regress(xs, ys, type.model) : null;
+    if (!fit) {
+      lines.push('', `${type.name}：このデータでは計算できません`);
+    } else {
+      lines.push('', `${type.name}   ${fit.model}`,
+        `A = ${fmt(fit.coeffs.A)}`, `B = ${fmt(fit.coeffs.B)}`);
+      if (fit.coeffs.C !== undefined) lines.push(`C = ${fmt(fit.coeffs.C)}`);
+      if (fit.r !== undefined) lines.push(`r = ${fmt(fit.r)}   (相関係数)`);
+    }
   }
   return lines.join('\n');
 }

@@ -11,10 +11,10 @@
   --key-text: #f0f2f4;
   --num-key: #3d444c;
   --op-key: #2f3843;
-  --shift: #ffd54f;
-  --alpha: #ff8a80;
-  --base: #82b1ff;
-  --extra: #a5d6a7;
+  --shift: #ffe066;
+  --alpha: #ff9f97;
+  --base: #93bcff;
+  --extra: #b2e2b4;
   --accent: #2979ff;
   --danger: #7ad17a;
   --gap: 5px;
@@ -246,63 +246,54 @@ body { display: flex; justify-content: center; }
   background: linear-gradient(180deg, #414851 0%, #2c3138 100%);
   color: var(--key-text);
   font: inherit;
-  padding: 0;
+  padding: 3px 2px;
   min-height: 0;
-  display: flex;
+  /* A 3x3 grid: the hints own their own tracks, so they can never sit on top
+     of the main legend however narrow the key gets. */
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: center;
+  justify-items: center;
   touch-action: none;
+  overflow: hidden;
   box-shadow: 0 2px 0 rgba(0, 0, 0, .45);
   transition: transform .04s, filter .04s;
 }
-.num-grid .key { min-height: 0; }
 .key.pressed { transform: translateY(2px); filter: brightness(1.35); box-shadow: none; }
 
 .key .main {
+  grid-area: 2 / 2;
   font-size: 15px;
   font-weight: 600;
   line-height: 1.05;
   text-align: center;
-  /* Keep the main legend clear of the hint gutters on every edge. */
-  padding: 8px 14px;
+  min-width: 0;
   max-width: 100%;
   overflow: hidden;
+  white-space: nowrap;
 }
-.num-grid .key.num .main { font-size: 24px; font-weight: 500; padding: 8px 11px; }
-/* Wider legends (×10□, Ans) need a smaller face so they stay on one line. */
-.num-grid .key.wide .main { font-size: 17px; white-space: nowrap; }
-.ico-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  vertical-align: middle;
-}
+.num-grid .key.num .main { font-size: 24px; font-weight: 500; }
+.num-grid .key.wide .main { font-size: 17px; }
 .key.op .main { font-size: 23px; }
 .key.ctrl .main { font-size: 17px; font-weight: 700; }
 .fn-grid .key .main { font-size: 14px; }
-/* Keys with no side hints can use the full width. */
-.fn-grid .key:not(:has(.hint-left)):not(:has(.hint-right)) .main { padding-left: 3px; padding-right: 3px; }
-.key:not(:has(.hint-up)) .main { padding-top: 3px; }
-.key:not(:has(.hint-down)) .main { padding-bottom: 3px; }
 
 .key .hint {
-  position: absolute;
-  font-size: 7.5px;
-  line-height: 1;
-  opacity: .85;
-  max-width: 96%;
-  overflow: hidden;
-  text-overflow: clip;
+  font-size: 8.5px;
+  line-height: 1.1;
+  font-weight: 700;
   white-space: nowrap;
   pointer-events: none;
-  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  /* Small type on a mid-grey key needs help to stay legible. */
+  text-shadow: 0 1px 1.5px rgba(0, 0, 0, .85);
 }
-.hint-up { top: 2.5px; left: 50%; transform: translateX(-50%); }
-.hint-down { bottom: 2.5px; left: 50%; transform: translateX(-50%); }
-.hint-left { left: 2px; top: 50%; transform: translateY(-50%); max-width: 26%; }
-.hint-right { right: 2px; top: 50%; transform: translateY(-50%); max-width: 34%; }
+.hint-up { grid-area: 1 / 1 / 2 / 4; }
+.hint-down { grid-area: 3 / 1 / 4 / 4; }
+.hint-left { grid-area: 2 / 1; padding-right: 2px; }
+.hint-right { grid-area: 2 / 3; padding-left: 2px; }
 
 .tone-shift { color: var(--shift); }
 .tone-alpha { color: var(--alpha); }
@@ -325,9 +316,17 @@ body { display: flex; justify-content: center; }
 .key.sys { min-height: 0; }
 .key.sys .main { font-size: 11px; }
 .key.tall { min-height: 0; }
-.key.ctrl.ac .main { font-size: 19px; }
+.control-strip .key.ctrl .main { font-size: 15px; }
 
-/* Legend glyphs: boxes, stacked fractions, d/dx and the radical. */
+/* Legend glyphs: boxes, stacked fractions, d/dx, the radical and the point. */
+.ico-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: middle;
+}
 .bx {
   display: inline-block;
   width: .58em;
@@ -379,8 +378,8 @@ body { display: flex; justify-content: center; }
 .key.has-hold::after {
   content: '';
   position: absolute;
-  right: 3px;
-  bottom: 3px;
+  right: 2px;
+  bottom: 2px;
   width: 0;
   height: 0;
   border-left: 4px solid transparent;
@@ -424,6 +423,53 @@ body { display: flex; justify-content: center; }
 .flick-down { grid-area: 3 / 2; }
 .flick-left { grid-area: 2 / 1; }
 .flick-right { grid-area: 2 / 3; }
+
+/* ------------------------------------------------- SI prefix hold-picker */
+
+.si-picker {
+  position: fixed;
+  z-index: 70;
+  width: 176px;
+  background: rgba(20, 24, 29, .97);
+  border: 1px solid #4a525d;
+  border-radius: 10px;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, .6);
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .08s ease-out;
+}
+.si-picker.visible { opacity: 1; }
+
+.si-head {
+  padding: 7px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #cfe3c8;
+  background: #2b333c;
+  border-bottom: 1px solid #414a55;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.si-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+  color: #c3cad3;
+}
+.si-row b { min-width: 26px; font-size: 14px; }
+.si-row i { flex: 1; font-style: normal; font-size: 10.5px; opacity: .7; }
+.si-row span { font-size: 10px; opacity: .75; }
+.si-row.on {
+  background: var(--accent);
+  color: #fff;
+}
+.si-row.on i, .si-row.on span { opacity: .95; }
 
 /* ---------------------------------------------------------------- overlay */
 
@@ -564,10 +610,31 @@ body { display: flex; justify-content: center; }
   .key { min-height: 48px; }
   .num-grid .key { min-height: 54px; }
 }
+/* Below this the key is too short for a legend row at all: the main label
+   would be centred on a collapsed track and spill over the hints. Drop them
+   — the flick popup still shows every direction. */
+@media (max-height: 600px) {
+  .key .hint { display: none; }
+  .fn-grid .key .main { font-size: 12px; }
+}
+
+/* Small phones cannot fit three legend rows plus side hints. Keep the
+   vertical ones — the flick popup still shows every direction. */
+@media (max-height: 700px), (max-width: 344px) {
+  .hint-left, .hint-right { display: none; }
+  .key { padding: 2px 1px; }
+  .key .hint { font-size: 7px; line-height: 1; }
+  .control-strip .key .main { font-size: 11.5px; }
+  .control-strip .key.ctrl .main { font-size: 13px; }
+  .fn-grid .key .main { font-size: 11.5px; }
+  .num-grid .key.num .main { font-size: 20px; }
+  .num-grid .key.wide .main { font-size: 14px; }
+  .key.op .main { font-size: 19px; }
+}
+
 @media (max-height: 620px) {
   .screen { min-height: 104px; height: 24vh; }
   .control-strip { height: 84px; }
-  .key .main { padding: 6px 13px; }
   .expr { font-size: 19px; max-height: 62px; }
   .result { font-size: 20px; }
   .key { min-height: 36px; }

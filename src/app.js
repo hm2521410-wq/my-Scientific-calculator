@@ -93,6 +93,24 @@ function buildKey(def) {
   return btn;
 }
 
+/**
+ * Shrink any main legend that would be clipped by its key. Runs after layout,
+ * so it adapts to whatever width the device actually gives us.
+ */
+function fitLegends() {
+  for (const main of document.querySelectorAll('.key .main')) {
+    main.style.fontSize = '';
+    const limit = main.clientWidth;
+    if (!limit) continue;
+    let size = parseFloat(getComputedStyle(main).fontSize);
+    let guard = 0;
+    while (main.scrollWidth > limit + 1 && size > 6 && guard++ < 40) {
+      size -= 0.5;
+      main.style.fontSize = `${size}px`;
+    }
+  }
+}
+
 function buildKeypad() {
   const fnGrid = $('#fn-grid');
   for (const row of FUNCTION_ROWS) for (const key of row) fnGrid.appendChild(buildKey(key));
@@ -239,7 +257,7 @@ function command(name, arg) {
     case 'engBack': engShift(-1); return;
     case 'todms': showAsDMS(); return;
 
-    case 'si': insertSiPrefix(arg); return;
+    case 'si': applyPrefixByExp(arg); return;
     case 'base': setBase(arg); return;
     case 'mplus': memoryAdd(1); return;
     case 'mminus': memoryAdd(-1); return;
@@ -636,38 +654,128 @@ function runCalc() {
 }
 
 // --- SI prefixes ------------------------------------------------------------
+//
+// These never touch the expression. They restate the answer that is already on
+// screen: with the result 1000, choosing "k" shows "1 k".
 
-/** Insert ×10ⁿ for a prefix, so "5 k" reads as 5×10³. */
-function insertSiPrefix(exp) {
-  beginEdit();
-  if (exp === 0) return;
-  const digits = String(Math.abs(exp)).split('').map((c) => ch(c));
-  if (exp < 0) digits.unshift(ch('−', '-'));
-  state.editor.insertTemplate('e10', { e: digits });
+const SI_NONE = SI_PREFIXES.findIndex((p) => p.exp === 0);
+
+/** The answer as a plain real number, or null when a prefix cannot apply. */
+function prefixableValue() {
+  const r = state.result;
+  if (!r || r.kind !== 'value' || !r.value || !Z.isReal(r.value)) return null;
+  return r.value.re;
 }
 
-/** Re-express the current answer with a chosen prefix (1500 Pa → 1.5 kPa). */
-function showWithPrefix(prefix) {
-  const r = state.result;
-  if (!r || !r.value || !Z.isReal(r.value)) return false;
-  const scaled = r.value.re / Math.pow(10, prefix.exp);
+function prefixText(value, prefix) {
+  const scaled = value / Math.pow(10, prefix.exp);
   const mant = F.formatReal(scaled, { ...state.display, mode: 'norm', norm: 2 }).text;
-  const text = prefix.exp === 0 ? mant : `${mant} ${prefix.sym}`;
-  r.forms = [{ label: `10^${prefix.exp}`, nodes: text.split('').map((c) => ch(c)), text }];
-  r.index = 0;
+  return prefix.exp === 0 ? mant : `${mant} ${prefix.sym}`;
+}
+
+/** Restate the displayed answer with the chosen prefix. */
+function applyPrefix(prefix) {
+  const value = prefixableValue();
+  if (value === null) return false;
+  const text = prefixText(value, prefix);
+  state.result.forms = [{ label: prefix.sym === '—' ? '—' : `${prefix.sym} (10^${prefix.exp})`,
+    nodes: text.split('').map((c) => ch(c)), text }];
+  state.result.index = 0;
   return true;
 }
 
-function openSiPanel() {
-  const canConvert = !!(state.result && state.result.value && Z.isReal(state.result.value));
-  const title = canConvert ? 'SI 接頭辞 — 結果を換算' : 'SI 接頭辞 — 式に挿入';
-  openList(title, SI_PREFIXES.map((p) => ({
-    html: `<b>${p.sym}</b> <small>${p.name}</small><span class="panel-val">10<sup>${p.exp}</sup></span>`,
-    p,
-  })), (item) => {
-    if (canConvert) showWithPrefix(item.p);
-    else insertSiPrefix(item.p.exp);
+function applyPrefixByExp(exp) {
+  const prefix = SI_PREFIXES.find((p) => p.exp === exp);
+  if (prefix) applyPrefix(prefix);
+}
+
+/**
+ * Hold the SI key and slide without lifting: a column of prefixes appears with
+ * "なし" under the finger, larger units upwards and smaller ones downwards.
+ */
+function createSiPicker(_key, rect) {
+  const value = prefixableValue();
+  if (value === null) return null;
+
+  const ITEM = 30;
+  const el = document.createElement('div');
+  el.className = 'si-picker';
+
+  const head = document.createElement('div');
+  head.className = 'si-head';
+  el.appendChild(head);
+
+  const list = document.createElement('div');
+  list.className = 'si-list';
+  const rows = SI_PREFIXES.map((p) => {
+    const row = document.createElement('div');
+    row.className = 'si-row';
+    row.innerHTML = `<b>${p.sym === '—' ? 'なし' : p.sym}</b>` +
+      `<i>${p.name}</i><span>${p.exp === 0 ? '' : `10<sup>${p.exp}</sup>`}</span>`;
+    list.appendChild(row);
+    return row;
   });
+  el.appendChild(list);
+  document.body.appendChild(el);
+
+  const width = el.offsetWidth;
+  const height = el.offsetHeight;
+  const left = Math.max(6, Math.min(window.innerWidth - width - 6,
+    rect.left + rect.width / 2 - width / 2));
+  el.style.left = `${left}px`;
+
+  let sel = SI_NONE;
+  const headH = head.offsetHeight;
+
+  const place = () => {
+    // Keep the highlighted row beside the finger, but never off screen.
+    const wanted = rect.top + rect.height / 2 - headH - sel * ITEM - ITEM / 2;
+    const top = Math.max(6, Math.min(window.innerHeight - height - 6, wanted));
+    el.style.top = `${top}px`;
+  };
+
+  const paint = () => {
+    rows.forEach((r, i) => r.classList.toggle('on', i === sel));
+    head.textContent = `${F.formatReal(value, state.display).text}  →  ${prefixText(value, SI_PREFIXES[sel])}`;
+    place();
+  };
+
+  el.classList.add('visible');
+  paint();
+
+  return {
+    update(_dx, dy) {
+      // Up is the positive direction, so dragging up walks towards P.
+      const next = Math.max(0, Math.min(SI_PREFIXES.length - 1, SI_NONE + Math.round(dy / ITEM)));
+      if (next !== sel) {
+        sel = next;
+        paint();
+        if (navigator.vibrate) { try { navigator.vibrate(4); } catch { /* unsupported */ } }
+      }
+    },
+    commit() {
+      applyPrefix(SI_PREFIXES[sel]);
+      el.remove();
+      render();
+    },
+    cancel() { el.remove(); },
+  };
+}
+
+function openSiPanel() {
+  const value = prefixableValue();
+  if (value === null) {
+    openPanel('SI 接頭辞', (body) => {
+      body.innerHTML = '<p class="setup-note">計算結果の表示を kPa・MPa・mV のように言い換える機能です。'
+        + 'まず = で答えを出してから、このキーを長押ししたまま上下になぞってください。</p>';
+    });
+    return;
+  }
+  openList('SI 接頭辞 — 結果の表示を変える', SI_PREFIXES.map((p) => ({
+    html: `<b>${p.sym === '—' ? 'なし' : p.sym}</b> <small>${p.name}</small>` +
+      `<span class="panel-val">${prefixText(value, p)}</span>`,
+    p,
+  })), (item) => { applyPrefix(item.p); });
 }
 
 // --- Memory / variables -----------------------------------------------------
@@ -1393,7 +1501,8 @@ function init() {
   buildControlStrip();
   buildKeypad();
 
-  new FlickController($('#calculator'), fireKey, (id) => keyIndex.get(id));
+  new FlickController($('#calculator'), fireKey, (id) => keyIndex.get(id),
+    (key, rect, origin) => (key.holdPicker ? createSiPicker(key, rect, origin) : null));
 
   // Tapping the expression area moves the cursor there.
   $('#expr').addEventListener('pointerdown', (e) => {
@@ -1404,10 +1513,15 @@ function init() {
   });
 
   window.addEventListener('keydown', handlePhysicalKeyboard);
-  window.addEventListener('resize', () => render());
+  window.addEventListener('resize', () => { fitLegends(); render(); });
 
   state.ctx.complexMode = state.mode === 'CMPLX';
   render();
+  fitLegends();
+  // Re-fit once layout has settled and again after web fonts land, since both
+  // change the metrics the measurement depends on.
+  requestAnimationFrame(fitLegends);
+  if (document.fonts?.ready) document.fonts.ready.then(fitLegends);
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => { /* offline support optional */ });

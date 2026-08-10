@@ -170,6 +170,68 @@ for (const [name, open] of panels) {
   await page.waitForTimeout(80);
 }
 
+// --- SI prefixes: display only, plus the hold-and-slide picker --------------
+
+await press('ac');
+await seq('n1', 'n0', 'n0', 'n0', 'eq');
+await press('si', 'up');                       // kilo
+if (/1\s*k/.test(await result())) passed++;
+else failures.push(`SI flick kilo: ${await result()}`);
+if (/1\s*0\s*0\s*0/.test((await page.locator('#expr').innerText()).replace(/\s+/g, ' '))) passed++;
+else failures.push('SI must not alter the expression');
+
+await press('ac');
+await seq('n1', 'n0', 'n0', 'n0', 'eq');
+{
+  const box = await page.locator('[data-key-id="si"]').boundingBox();
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.waitForTimeout(620);
+  const opened = await page.locator('.si-picker .si-row').count();
+  if (opened === 15) passed++; else failures.push(`SI picker rows: ${opened}`);
+  const none = await page.locator('.si-head').innerText();
+  if (/→\s*1000/.test(none)) passed++; else failures.push(`SI picker starts at none: ${none}`);
+  await page.mouse.move(cx, cy - 90, { steps: 6 });   // three rows up = kilo
+  await page.waitForTimeout(120);
+  const head = await page.locator('.si-head').innerText();
+  if (/1\s*k/.test(head)) passed++; else failures.push(`SI picker drag up: ${head}`);
+  await page.mouse.up();
+  await page.waitForTimeout(150);
+  if (/1\s*k/.test(await result())) passed++; else failures.push(`SI picker commit: ${await result()}`);
+  if (await page.locator('.si-picker').count() === 0) passed++;
+  else failures.push('SI picker did not close');
+}
+
+// --- Legends never overlap or get clipped -----------------------------------
+
+for (const [w, h] of [[320, 568], [375, 667], [412, 915]]) {
+  await page.setViewportSize({ width: w, height: h });
+  await page.waitForTimeout(250);
+  const bad = await page.evaluate(() => {
+    const problems = [];
+    for (const key of document.querySelectorAll('.key')) {
+      const main = key.querySelector('.main');
+      if (!main) continue;
+      if (main.scrollWidth > main.clientWidth + 1) problems.push(`${key.dataset.keyId}:clipped`);
+      const mr = main.getBoundingClientRect();
+      if (mr.width < 2 || mr.height < 2) problems.push(`${key.dataset.keyId}:invisible`);
+      for (const hint of key.querySelectorAll('.hint')) {
+        const hr = hint.getBoundingClientRect();
+        if (!(mr.right <= hr.left || hr.right <= mr.left || mr.bottom <= hr.top || hr.bottom <= mr.top)) {
+          problems.push(`${key.dataset.keyId}:overlap`);
+        }
+      }
+    }
+    return problems;
+  });
+  if (bad.length === 0) passed++;
+  else failures.push(`legends at ${w}x${h}: ${bad.slice(0, 6).join(', ')}`);
+}
+await page.setViewportSize({ width: 412, height: 915 });
+await page.waitForTimeout(200);
+
 // EQN: quadratic by coefficients
 await press('mode');
 await page.waitForTimeout(140);

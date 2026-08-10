@@ -12,11 +12,16 @@ export class FlickController {
    * @param {HTMLElement} root container holding the key elements
    * @param {(key, direction) => void} onFire
    * @param {(key) => object} getKeyData maps a DOM element's id to key data
+   * @param {(key, rect, origin) => ?object} openPicker optional; when a key
+   *        declares `holdPicker`, holding it calls this and, if it returns a
+   *        { update, commit, cancel } controller, the same unbroken drag then
+   *        scrubs that picker instead of flicking.
    */
-  constructor(root, onFire, getKeyData) {
+  constructor(root, onFire, getKeyData, openPicker = null) {
     this.root = root;
     this.onFire = onFire;
     this.getKeyData = getKeyData;
+    this.openPicker = openPicker;
     this.active = null;
     this.popup = null;
     this.repeatTimer = null;
@@ -58,6 +63,10 @@ export class FlickController {
 
     const dx = e.clientX - a.x0;
     const dy = e.clientY - a.y0;
+
+    // Once a hold-picker is open the drag belongs to it.
+    if (a.picker) { a.picker.update(dx, dy); return; }
+
     const dist = Math.hypot(dx, dy);
     let dir = 'center';
     if (dist >= THRESHOLD) {
@@ -98,6 +107,11 @@ export class FlickController {
     this.hidePopup();
     if (!a) return;
     a.el.classList.remove('pressed');
+    if (a.picker) {
+      if (dir === null) a.picker.cancel();
+      else a.picker.commit();
+      return;
+    }
     if (dir === null) return;
     if (a.firedByLongPress) return;                  // the hold already acted
     if (a.firedByRepeat && dir === 'center') return; // already delivered
@@ -107,16 +121,25 @@ export class FlickController {
   // --- long press -----------------------------------------------------------
 
   startLongPress(data) {
-    if (!data.longPress) return;
+    if (!data.longPress && !data.holdPicker) return;
     this.longPressTimer = setTimeout(() => {
       const a = this.active;
       if (!a || a.dir !== 'center') return;
-      a.firedByLongPress = true;
       this.stopRepeat();
       this.hidePopup();
-      a.el.classList.remove('pressed');
       haptic(14);
-      this.onFire(a.data, 'longPress');
+
+      if (data.holdPicker && this.openPicker) {
+        const picker = this.openPicker(a.data, a.el.getBoundingClientRect(), { x: a.x0, y: a.y0 });
+        if (picker) {
+          a.picker = picker;
+          picker.update(0, 0);
+          return;
+        }
+      }
+      a.firedByLongPress = true;
+      a.el.classList.remove('pressed');
+      if (data.longPress) this.onFire(a.data, 'longPress');
     }, LONG_PRESS);
   }
 

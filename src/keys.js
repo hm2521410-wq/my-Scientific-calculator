@@ -198,11 +198,13 @@ export const FUNCTION_ROWS = [
     },
     {
       id: 'si', cls: 'fn',
+      // Display-only: these restate the answer, they never alter the expression.
       center: k('接頭辞', menu('si'), null, null, 'SI'),
-      up: k('k (10³)', cmd('si', 3), 'shift', 'k'),
-      right: k('M (10⁶)', cmd('si', 6), 'alpha', 'M'),
-      down: k('m (10⁻³)', cmd('si', -3), 'extra', 'm'),
-      left: k('µ (10⁻⁶)', cmd('si', -6), 'extra', 'µ'),
+      up: k('k  キロ', cmd('si', 3), 'shift', 'k'),
+      right: k('M  メガ', cmd('si', 6), 'alpha', 'M'),
+      down: k('m  ミリ', cmd('si', -3), 'extra', 'm'),
+      left: k('µ  マイクロ', cmd('si', -6), 'extra', 'µ'),
+      holdPicker: true,
       longPress: menu('si'),
     },
     {

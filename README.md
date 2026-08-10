@@ -17,14 +17,28 @@
 npm start           # http://127.0.0.1:8123 で配信
 ```
 
-スマホから使う場合は同じ Wi-Fi 内で PC の IP を開くか、GitHub Pages にデプロイしてください
-（`.github/workflows/pages.yml` を同梱。リポジトリの Settings ▸ Pages で
-Source を **GitHub Actions** にすると、push のたびに自動公開されます）。
+スマホから使う場合は同じ Wi-Fi 内で PC の IP を開くか、下の手順で GitHub Pages に公開してください。
 
-### アプリとして入れる
+### 1. GitHub Pages を有効にする（最初の 1 回だけ）
+
+**ブラウザで** リポジトリを開きます（GitHub のスマホアプリには Settings 画面が無いため、
+アプリからはこの操作ができません。スマホの Chrome や Safari で構いません）。
+
+1. `https://github.com/hm2521410-wq/my-Scientific-calculator/settings/pages` を開く
+2. **Build and deployment** ▸ **Source** を **GitHub Actions** に変更
+3. Actions タブの「Deploy to GitHub Pages」を再実行（Re-run all jobs）
+
+`.github/workflows/pages.yml` を同梱しているので、以後は push するたびに自動で公開されます。
+公開先は `https://hm2521410-wq.github.io/my-Scientific-calculator/` です。
+
+> Pages の有効化そのものは Actions のトークンでは実行できません
+> （`Create Pages site failed: Resource not accessible by integration` になります）。
+> 上の 1 回だけは手作業が必要です。
+
+### 2. アプリとして入れる
 
 1. Chrome（Android）で公開 URL を開く
-2. メニュー ▸ **アプリをインストール** / **ホーム画面に追加**
+2. メニュー（⋮）▸ **アプリをインストール** / **ホーム画面に追加**
 3. 以後はアイコンから全画面で起動し、**オフラインでも動きます**（Service Worker でキャッシュ）
 
 iOS の Safari は 共有 ▸ 「ホーム画面に追加」で同様に使えます。

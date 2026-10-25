@@ -695,8 +695,25 @@ function applyPrefixByExp(exp) {
  * Hold the SI key and slide without lifting: a column of prefixes appears with
  * "なし" under the finger, larger units upwards and smaller ones downwards.
  */
+/**
+ * The value the SI key should restate. With no answer on screen yet, the key
+ * does what = would: a typed expression is calculated first, and an empty
+ * line restates Ans. So touching SI always has something to work on.
+ */
+function prefixTarget() {
+  if (prefixableValue() !== null || state.mode === 'BASE') return prefixableValue();
+  if (!state.editor.isEmpty() && !state.freshResult) {
+    runEquals();
+  } else if (!state.result) {
+    showValue(state.ctx.ans);
+    state.freshResult = true;
+  }
+  render();
+  return prefixableValue();
+}
+
 function createSiPicker(_key, rect) {
-  const value = prefixableValue();
+  const value = prefixTarget();
   if (value === null) return null;
 
   const el = document.createElement('div');
@@ -765,12 +782,16 @@ function createSiPicker(_key, rect) {
 }
 
 function openSiPanel() {
-  const value = prefixableValue();
+  const value = prefixTarget();
   if (value === null) {
     openPanel('SI 接頭辞', (body) => {
       const why = state.mode === 'BASE'
         ? 'BASE-N（n進）モードでは接頭辞は使えません。MODE ▸ COMP に戻してください。'
-        : 'まず = で答えを出してから、このキーを押したまま上下になぞってください。';
+        : state.result?.kind === 'error'
+          ? '式がエラーになったため使えません。式を直してから、もう一度このキーを押したまま上下になぞってください。'
+          : state.result?.value && !Z.isReal(state.result.value)
+            ? '複素数の答えには使えません。'
+            : 'この結果（解の一覧など）には使えません。ふつうの計算結果に対して使ってください。';
       body.innerHTML = `<p class="setup-note">計算結果の表示を kPa・MPa・mV のように言い換える機能です。${why}</p>`;
     });
     return;
@@ -1143,7 +1164,17 @@ function openHelp() {
     };
 
     search.addEventListener('input', render2);
-    body.append(search, results);
+
+    // Which release is running, so an out-of-date install is easy to spot.
+    const version = document.createElement('p');
+    version.className = 'help-version';
+    if (window.caches) {
+      caches.keys().then((keys) => {
+        const name = keys.find((k2) => k2.startsWith('fx375es-web-'));
+        if (name) version.textContent = `バージョン: ${name.replace('fx375es-web-', '')}`;
+      }).catch(() => {});
+    }
+    body.append(search, results, version);
     render2();
   });
 }
@@ -1568,7 +1599,22 @@ function init() {
   if (document.fonts?.ready) document.fonts.ready.then(fitLegends);
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').catch(() => { /* offline support optional */ });
+    // When a new release has been installed and takes over, reload once so the
+    // page runs entirely on it rather than on the modules it started with.
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || reloading) return;
+      reloading = true;
+      location.reload();
+    });
+    navigator.serviceWorker.register('./sw.js').then((reg) => {
+      // An installed app can sit in the background for days; look for a new
+      // release whenever it comes back to the front.
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') reg.update().catch(() => {});
+      });
+    }).catch(() => { /* offline support optional */ });
   }
 }
 

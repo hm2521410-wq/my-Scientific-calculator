@@ -1,5 +1,6 @@
-// Offline support. Bump CACHE when any shipped file changes.
-const CACHE = 'fx375es-web-v3';
+// Offline support. The deploy workflow stamps CACHE with the commit, so every
+// release gets a fresh cache; bump the suffix by hand when testing locally.
+const CACHE = 'fx375es-web-v4';
 
 const ASSETS = [
   './',
@@ -23,10 +24,17 @@ const ASSETS = [
   './icons/icon-maskable-512.png',
 ];
 
+// The app is a set of ES modules that only work together when they all come
+// from the same release. Fetching or refreshing them one by one has run a new
+// keys.js against an old flick.js after a deployment, and the SI ladder then
+// never opened. So a release is installed whole, straight from the server
+// (`reload` skips the HTTP cache, which could still hold the previous files),
+// and pages are served only from that one complete set. The page reloads
+// itself when a new set takes over (see app.js).
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE)
-      .then((c) => c.addAll(ASSETS))
+      .then((c) => c.addAll(ASSETS.map((url) => new Request(url, { cache: 'reload' }))))
       .then(() => self.skipWaiting()),
   );
 });
@@ -39,43 +47,15 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Network-first, revalidating with the server, for everything we ship.
-//
-// The app is a set of ES modules that must all come from the same release.
-// Serving each from cache and refreshing it in the background let a new
-// keys.js run against an old flick.js after a deployment — the SI key then
-// fell back to plain k / m flicks. Asking the server every time (an ETag
-// check, so usually a cheap 304) keeps every module in step; the cache is
-// only the offline fallback, or the answer if the network is slow.
-const NETWORK_TIMEOUT_MS = 3500;
-
-function fromNetwork(request) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('timeout')), NETWORK_TIMEOUT_MS);
-    // A navigation Request cannot be re-issued with options, so use its URL.
-    const target = request.mode === 'navigate' ? request.url : request;
-    fetch(target, { cache: 'no-cache' })
-      .then((res) => { clearTimeout(timer); resolve(res); })
-      .catch((err) => { clearTimeout(timer); reject(err); });
-  });
-}
-
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
-  const sameOrigin = new URL(request.url).origin === self.location.origin;
-  if (!sameOrigin) return;
+  if (new URL(request.url).origin !== self.location.origin) return;
 
   const key = request.mode === 'navigate' ? './index.html' : request;
   event.respondWith(
-    fromNetwork(request)
-      .then((res) => {
-        if (res.ok) {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(key, copy));
-        }
-        return res;
-      })
-      .catch(() => caches.match(key).then((hit) => hit || caches.match(request))),
+    caches.open(CACHE)
+      .then((c) => c.match(key, { ignoreSearch: true }))
+      .then((hit) => hit || fetch(request)),
   );
 });

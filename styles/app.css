@@ -618,6 +618,7 @@ body { display: flex; justify-content: center; }
 .help-search::placeholder { color: #7c8894; }
 
 .help-results { display: flex; flex-direction: column; gap: 5px; }
+.help-version { margin: 14px 0 4px; font-size: 11px; color: #7c8894; text-align: center; }
 
 .help-group {
   margin: 12px 0 2px;

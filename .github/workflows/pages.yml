@@ -37,6 +37,10 @@ jobs:
       # GitHub Actions). The Actions token is not permitted to create the site,
       # so `enablement: true` cannot do it for us.
       - uses: actions/configure-pages@v5
+      # Give every release its own offline cache, so installed apps always
+      # switch to a complete new set of files instead of mixing old and new.
+      - name: Stamp the service worker with this release
+        run: sed -i "s/^const CACHE = .*/const CACHE = 'fx375es-web-${GITHUB_SHA::7}';/" sw.js
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .

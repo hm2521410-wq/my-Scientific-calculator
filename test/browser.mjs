@@ -165,7 +165,6 @@ const panels = [
   ['HELP', () => press('help')],
   ['hyp', () => press('hyp')],
   ['DRG', () => press('ans', 'up')],
-  ['SI', () => press('si')],
   ['MULTI(long press)', () => longPress('multi')],
 ];
 for (const [name, open] of panels) {
@@ -258,6 +257,34 @@ await seq('n1', 'n0', 'n0', 'n0', 'eq');
   await tp.waitForTimeout(120);
   const got = (await tp.locator('#result').innerText()).replace(/\s+/g, ' ');
   if (/G/.test(got)) passed++; else failures.push(`SI release on G under touch → ${got}`);
+
+  // With no answer yet the key must still open: it calculates what is typed
+  // (as = would), or restates Ans when the line is empty.
+  const ladder = async (sym) => {
+    const k = await tp.locator('[data-key-id="si"]').boundingBox();
+    await touch('touchStart', k.x + k.width / 2, k.y + k.height / 2);
+    await tp.waitForTimeout(120);
+    const rows = await tp.locator('.si-picker .si-row').count();
+    const row = await tp.evaluate((want) => {
+      const el = [...document.querySelectorAll('.si-picker .si-row')].find((r) => r.querySelector('b').textContent === want);
+      if (!el) return null;
+      const b = el.getBoundingClientRect();
+      return b.top + b.height / 2;
+    }, sym);
+    if (row !== null) await touch('touchMove', k.x + k.width / 2, row);
+    await touch('touchEnd');
+    await tp.waitForTimeout(120);
+    return { rows, out: (await tp.locator('#result').innerText()).replace(/\s+/g, ' ') };
+  };
+  await tap('ac');
+  for (const id of ['n2', 'n5', 'n0', 'n0']) await tap(id);
+  let got2 = await ladder('k');
+  if (got2.rows === 17 && /2\s*\.\s*5\s*k/.test(got2.out)) passed++;
+  else failures.push(`SI on an uncalculated 2500 → rows ${got2.rows}, ${got2.out}`);
+  await tap('ac');
+  got2 = await ladder('k');
+  if (got2.rows === 17 && /2\s*\.\s*5\s*k/.test(got2.out)) passed++;
+  else failures.push(`SI on an empty line (Ans 2500) → rows ${got2.rows}, ${got2.out}`);
   await tctx.close();
 }
 

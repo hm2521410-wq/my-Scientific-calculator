@@ -151,6 +151,11 @@ function ev(n, ctx) {
     case 'pow': return req(Z.pow(ev(n.a, ctx), ev(n.b, ctx)));
     case 'fact': return factorial(ev(n.a, ctx));
     case 'pct': return Z.div(ev(n.a, ctx), Z.C(100, 0));
+    // Scale by the nearest double to 10^±k in one rounding step, so 80M is
+    // exactly 80000000 and 5m exactly the double nearest 0.005.
+    case 'si': return n.exp >= 0
+      ? Z.mul(ev(n.a, ctx), Z.C(Number(`1e${n.exp}`), 0))
+      : Z.div(ev(n.a, ctx), Z.C(Number(`1e${-n.exp}`), 0));
     case 'eq': throw new CalcError('Syntax ERROR', -1, '= is only valid in SOLVE / EQN');
     case 'fn': return callFn(n, ctx);
     default: throw new CalcError('Syntax ERROR', -1, `unknown node ${n.k}`);

@@ -9,7 +9,7 @@ import * as F from '../src/format.js';
 import * as S from '../src/symbolic.js';
 import { solveEquation, solvePolynomialCoeffs, solveSimultaneous } from '../src/solve.js';
 import { integrate as quad, derivative, polynomialRoots } from '../src/numeric.js';
-import { Editor, serializeList, nodesFromAst, makeNode, ch } from '../src/editor.js';
+import { Editor, serializeList, nodesFromAst, makeNode, ch, siChar } from '../src/editor.js';
 
 let passed = 0;
 const failures = [];
@@ -233,8 +233,13 @@ check('AST → editor nodes round-trips', (() => {
       if (r < 0.8) return { k: 'var', n: pick(['X', 'A']) };
       return { k: 'const', n: 'pi' };
     }
-    const kind = pick(['add', 'sub', 'mul', 'div', 'div', 'pow', 'neg', 'sqrt', 'fn', 'paren', 'mul']);
+    const kind = pick(['add', 'sub', 'mul', 'div', 'div', 'pow', 'neg', 'sqrt', 'fn', 'paren', 'mul', 'si', 'pct']);
     if (kind === 'pow') return { k: 'pow', a: gen(d - 1), b: N(pick([2, 3, -1, 6])) };
+    if (kind === 'si') {
+      const [sym, exp] = pick([['k', 3], ['M', 6], ['G', 9], ['m', -3], ['µ', -6], ['n', -9]]);
+      return { k: 'si', a: gen(d - 1), sym, exp };
+    }
+    if (kind === 'pct') return { k: 'pct', a: gen(d - 1) };
     if (kind === 'neg') return { k: 'neg', a: gen(d - 1) };
     if (kind === 'sqrt') return { k: 'fn', n: 'sqrt', args: [gen(d - 1)] };
     if (kind === 'fn') return { k: 'fn', n: pick(['sin', 'cos', 'ln', 'abs', 'cbrt']), args: [gen(d - 1)] };
@@ -292,6 +297,19 @@ check('AST → editor nodes round-trips', (() => {
     ['|2−7|×2', seq(T('abs', { a: '2−7' }), '×2'), 10],
     ['1½ × 2', seq(T('mixed', { w: '1', num: '1', den: '2' }), '×2'), 3],
     ['×10ˣ on its own is 1×10ˣ', seq(T('e10', { e: '3' })), 1000],
+    ['5² then ×10³ is 25000, not 5^(2×10³)', seq('5', T('sup', { e: '2' }), T('e10', { e: '3' })), 25000],
+    ['3² then ! is 9!', seq('3', T('sup', { e: '2' }), '!'), 362880],
+    ['5² then % is 0.25', seq('5', T('sup', { e: '2' }), '%'), 0.25],
+    ['80M is 80×10⁶', seq('80', siChar('M')), 80e6],
+    ['reported case with M: 80M over 400×400×12, ×40²×30', seq(T('frac', { num: seq('80', siChar('M')), den: '400×400×12' }), '×40', T('sup', { e: '2' }), '×30'), 2e6],
+    ['M on its own is 1M', seq(siChar('M')), 1e6],
+    ['2k+500m', seq('2', siChar('k'), '+500', siChar('m')), 2000.5],
+    ['3.3V ÷ 2.2kΩ = 1.5m', seq('3.3÷2.2', siChar('k')), 1.5e-3],
+    ['10µ × 3', seq('10', siChar('µ'), '×3'), 3e-5],
+    ['5² then k', seq('5', T('sup', { e: '2' }), siChar('k')), 25000],
+    ['−4.7n', seq('−4.7', siChar('n')), -4.7e-9],
+    ['(1+2)G', seq(T('paren', { a: '1+2' }), siChar('G')), 3e9],
+    ['M (prefix) next to M (variable) stays apart', seq('2', siChar('M'), '×M'), 0],
     ['×10ˣ after an operator', seq('2×', T('e10', { e: '2' })), 200],
     ['sin(20+10) in Deg', seq(T('fn', { name: 'sin', a: '20+10' })), 0.5],
     ['∫ X² from 1−1 to 1+1', seq(T('integ', { lo: '1−1', hi: '1+1', f: seq('X', T('sup', { e: '2' })) })), 8 / 3],

@@ -51,6 +51,12 @@ export const FUNCTIONS = new Set([
 // Arguments that must NOT be evaluated eagerly (they are function bodies).
 export const LAZY_FIRST_ARG = new Set(['integ', 'deriv', 'sumf', 'prodf']);
 
+/** SI prefixes accepted after a value, as powers of ten. */
+export const SI_EXP = {
+  Y: 24, Z: 21, E: 18, P: 15, T: 12, G: 9, M: 6, k: 3,
+  m: -3, 'µ': -6, 'μ': -6, n: -9, p: -12, f: -15, a: -18, z: -21, y: -24,
+};
+
 export const VARIABLES = ['A', 'B', 'C', 'D', 'E', 'F', 'X', 'Y', 'M'];
 const VARSET = new Set(VARIABLES);
 
@@ -117,6 +123,16 @@ export function tokenize(src, opts = {}) {
       case 'ℯ': push('const', 'e'); i++; continue;
       case 'ⅈ': push('const', 'i'); i++; continue;
       case '⏨': push('exp10', '⏨'); i++; continue;
+      case '‹': {
+        // An SI prefix typed after a value, written ‹M› so it can never be
+        // mistaken for the variable M (or E, A, …).
+        const end = src.indexOf('›', i);
+        const sym = end < 0 ? '' : src.slice(i + 1, end);
+        if (!(sym in SI_EXP)) throw new CalcError('Syntax ERROR', i, `unknown SI prefix ${JSON.stringify(sym)}`);
+        push('si', sym);
+        i = end + 1;
+        continue;
+      }
       case '+': case '-': case '*': case '/': case '^':
       case '(': case ')': case ',': case '=':
         push('op', ch); i++; continue;
@@ -259,10 +275,22 @@ class Parser {
     const base = this.parsePostfix();
     if (this.at('op', '^')) {
       this.next();
-      const exp = this.parseUnary(); // right associative, allows 2^-3
-      return this.applyPostfixLoop(bin('pow', base, exp));
+      return this.applyPostfixLoop(bin('pow', base, this.parseExponent()));
     }
     return base;
+  }
+
+  /**
+   * The right-hand side of ^. A parenthesised exponent — which is what x², x³
+   * and x□ always produce — ends at its closing parenthesis, so whatever
+   * follows applies to the whole power: 5²×10³ is 25000 and 3²! is 9!, not
+   * 5^(2×10³) and 3^(2!). A bare exponent keeps the old reading (2^-3).
+   */
+  parseExponent() {
+    if (!this.at('op', '(')) return this.parseUnary(); // right associative
+    let e = this.parseAtom();
+    if (this.at('op', '^')) { this.next(); e = bin('pow', e, this.parseExponent()); }
+    return e;
   }
 
   applyPostfixLoop(node) {
@@ -276,6 +304,9 @@ class Parser {
         else if (t.value === '°') a = fn('todeg', [a]);
         else if (t.value === 'ʳ') a = fn('torad', [a]);
         else if (t.value === 'ᵍ') a = fn('tograd', [a]);
+      } else if (t.type === 'si') {
+        this.next();
+        a = { k: 'si', a, sym: t.value, exp: SI_EXP[t.value] };
       } else if (t.type === 'exp10') {
         this.next();
         const e = this.parseExponentOperand();
@@ -367,6 +398,7 @@ export function stringify(node) {
     case 'neg': return '-' + wrap(node.a, PREC.neg);
     case 'fact': return wrap(node.a, 5) + '!';
     case 'pct': return wrap(node.a, 5) + '%';
+    case 'si': return `${wrap(node.a, 5)}‹${node.sym}›`;
     case 'add': return stringify(node.a) + '+' + wrap(node.b, PREC.add + 1);
     case 'sub': return stringify(node.a) + '-' + wrap(node.b, PREC.add + 1);
     case 'mul': return wrap(node.a, PREC.mul) + '*' + wrap(node.b, PREC.mul + 1);

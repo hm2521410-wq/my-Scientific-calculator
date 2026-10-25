@@ -200,7 +200,8 @@ export const FUNCTION_ROWS = [
       id: 'si', cls: 'fn',
       // Unlike every other key this one is vertical-only: touching it opens a
       // ladder of prefixes reaching up (k, M, G, …) and down (m, µ, n, …).
-      // It only ever restates the answer; the expression is never touched.
+      // While typing it appends the prefix to the number (80 → 80M = 80×10⁶);
+      // straight after = it restates the answer instead (1000 → 1 k).
       center: k('接頭辞', menu('si'), null, null, 'SI'),
       // Only reached if the ladder cannot open (no answer yet): show the full
       // list or the explanation rather than quietly applying k or m.

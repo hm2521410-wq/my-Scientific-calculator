@@ -53,6 +53,9 @@ export function makeNode(t, extra = {}) {
 
 export const ch = (v, out = v) => ({ t: 'c', v, out });
 
+/** An SI prefix: shown as its letter, read as ×10^±k (see parser SI_EXP). */
+export const siChar = (sym) => ({ t: 'c', v: sym, out: `‹${sym}›`, si: true });
+
 // Display character → serialised text.
 const CHAR_OUT = {
   '−': '-', '×': '*', '÷': '/', '·': '*',
@@ -69,7 +72,8 @@ export function serializeList(list) {
   let out = '';
   for (const n of list) {
     // ×10ˣ with nothing in front of it means 1×10ˣ, as on the real machine.
-    if (n.t === 'e10' && (out === '' || /[-+*/(,^=]$/.test(out))) out += '1';
+    // So does an SI prefix: M alone is 1M.
+    if ((n.t === 'e10' || n.si) && (out === '' || /[-+*/(,^=]$/.test(out))) out += '1';
     out += serializeNode(n);
   }
   return out;
@@ -369,7 +373,7 @@ function sub(node, name, opts) {
 
 function renderNode(n, opts) {
   if (isChar(n)) {
-    const cls = /[0-9.]/.test(n.v) ? 'nd-num' : /[+−×÷=]/.test(n.v) ? 'nd-op' : 'nd-sym';
+    const cls = n.si ? 'nd-si' : /[0-9.]/.test(n.v) ? 'nd-num' : /[+−×÷=]/.test(n.v) ? 'nd-op' : 'nd-sym';
     return el('span', `nd-ch ${cls}`, n.v);
   }
   switch (n.t) {
@@ -594,6 +598,8 @@ export function nodesFromAst(ast, parentPrec = 0) {
       return wrap([...nodesFromAst(ast.a, 5), ch('!')], 5);
     case 'pct':
       return wrap([...nodesFromAst(ast.a, 5), ch('%')], 5);
+    case 'si':
+      return wrap([...nodesFromAst(ast.a, 5), siChar(ast.sym)], 5);
     case 'fn': {
       const name = ast.n;
       if (name === 'sqrt') {

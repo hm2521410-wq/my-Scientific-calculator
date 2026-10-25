@@ -1,6 +1,6 @@
 // Application controller: keypad wiring, modes, evaluation and display.
 
-import { Editor, renderList, scaleDelimiters, caretMap, nodesFromAst, nodesFromResultText, ch, makeNode, toPlainText } from './editor.js';
+import { Editor, renderList, scaleDelimiters, caretMap, nodesFromAst, nodesFromResultText, ch, siChar, makeNode, toPlainText } from './editor.js';
 import { FlickController } from './flick.js';
 import {
   FUNCTION_ROWS, NUMERIC_ROWS, SHIFT_KEY, ALPHA_KEY, NAV_KEYS, TOP_KEYS,
@@ -258,7 +258,6 @@ function command(name, arg) {
     case 'engBack': engShift(-1); return;
     case 'todms': showAsDMS(); return;
 
-    case 'si': applyPrefixByExp(arg); return;
     case 'base': setBase(arg); return;
     case 'mplus': memoryAdd(1); return;
     case 'mminus': memoryAdd(-1); return;
@@ -656,10 +655,13 @@ function runCalc() {
 
 // --- SI prefixes ------------------------------------------------------------
 //
-// These never touch the expression. They restate the answer that is already on
-// screen: with the result 1000, choosing "k" shows "1 k".
+// While typing, a prefix is part of the number: 80 then M shows "80M" and is
+// calculated as 80×10⁶. Straight after =, the same key restates the answer
+// instead (1000 → "1 k"), like ENG does, without touching the expression.
 
 const SI_NONE = SI_PREFIXES.findIndex((p) => p.exp === 0);
+const SUPERSCRIPT = { '-': '⁻', 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹' };
+const tenTo = (exp) => `10${String(exp).replace(/./g, (c) => SUPERSCRIPT[c])}`;
 
 /** The answer as a plain real number, or null when a prefix cannot apply. */
 function prefixableValue() {
@@ -667,6 +669,13 @@ function prefixableValue() {
   if (!r || r.kind !== 'value' || r.baseN) return null;
   if (!r.value || !Z.isReal(r.value)) return null;
   return r.value.re;
+}
+
+/** What the SI key acts on now: 'answer', 'input', or null in BASE-N. */
+function siTarget() {
+  if (state.mode === 'BASE') return null;
+  if (state.freshResult && prefixableValue() !== null) return 'answer';
+  return 'input';
 }
 
 function prefixText(value, prefix) {
@@ -686,35 +695,26 @@ function applyPrefix(prefix) {
   return true;
 }
 
-function applyPrefixByExp(exp) {
-  const prefix = SI_PREFIXES.find((p) => p.exp === exp);
-  if (prefix) applyPrefix(prefix);
+/** Type a prefix into the expression at the cursor: 80 → 80M. */
+function insertPrefix(prefix) {
+  beginEdit();
+  state.editor.insert(siChar(prefix.sym));
+}
+
+function usePrefix(target, prefix) {
+  if (prefix.exp === 0) return;
+  if (target === 'answer') applyPrefix(prefix);
+  else insertPrefix(prefix);
 }
 
 /**
  * Hold the SI key and slide without lifting: a column of prefixes appears with
  * "なし" under the finger, larger units upwards and smaller ones downwards.
  */
-/**
- * The value the SI key should restate. With no answer on screen yet, the key
- * does what = would: a typed expression is calculated first, and an empty
- * line restates Ans. So touching SI always has something to work on.
- */
-function prefixTarget() {
-  if (prefixableValue() !== null || state.mode === 'BASE') return prefixableValue();
-  if (!state.editor.isEmpty() && !state.freshResult) {
-    runEquals();
-  } else if (!state.result) {
-    showValue(state.ctx.ans);
-    state.freshResult = true;
-  }
-  render();
-  return prefixableValue();
-}
-
 function createSiPicker(_key, rect) {
-  const value = prefixTarget();
-  if (value === null) return null;
+  const target = siTarget();
+  if (!target) return null;
+  const value = target === 'answer' ? prefixableValue() : null;
 
   const el = document.createElement('div');
   el.className = 'si-picker';
@@ -735,7 +735,13 @@ function createSiPicker(_key, rect) {
   let sel = SI_NONE;
   const paint = () => {
     rows.forEach((r, i) => r.classList.toggle('on', i === sel));
-    head.textContent = `${F.formatReal(value, state.display).text} → ${prefixText(value, SI_PREFIXES[sel])}`;
+    const p = SI_PREFIXES[sel];
+    if (target === 'answer') {
+      head.textContent = `答え ${F.formatReal(value, state.display).text} → ${prefixText(value, p)}`;
+    } else {
+      head.textContent = p.exp === 0 ? '入力する接頭辞を選ぶ（上：k M G… 下：m µ n…）'
+        : `${p.sym} を入力（×${tenTo(p.exp)}）`;
+    }
   };
   // Fill the header before measuring anything: its height is fixed in CSS, but
   // laying out first and filling later is what once shifted every row.
@@ -773,7 +779,7 @@ function createSiPicker(_key, rect) {
       }
     },
     commit() {
-      if (sel !== SI_NONE) applyPrefix(SI_PREFIXES[sel]);
+      usePrefix(target, SI_PREFIXES[sel]);
       el.remove();
       render();
     },
@@ -782,25 +788,22 @@ function createSiPicker(_key, rect) {
 }
 
 function openSiPanel() {
-  const value = prefixTarget();
-  if (value === null) {
+  const target = siTarget();
+  if (!target) {
     openPanel('SI 接頭辞', (body) => {
-      const why = state.mode === 'BASE'
-        ? 'BASE-N（n進）モードでは接頭辞は使えません。MODE ▸ COMP に戻してください。'
-        : state.result?.kind === 'error'
-          ? '式がエラーになったため使えません。式を直してから、もう一度このキーを押したまま上下になぞってください。'
-          : state.result?.value && !Z.isReal(state.result.value)
-            ? '複素数の答えには使えません。'
-            : 'この結果（解の一覧など）には使えません。ふつうの計算結果に対して使ってください。';
-      body.innerHTML = `<p class="setup-note">計算結果の表示を kPa・MPa・mV のように言い換える機能です。${why}</p>`;
+      body.innerHTML = '<p class="setup-note">BASE-N（n進）モードでは接頭辞は使えません。'
+        + 'MODE ▸ COMP に戻してください。</p>';
     });
     return;
   }
-  openList('SI 接頭辞 — 結果の表示を変える', SI_PREFIXES.map((p) => ({
-    html: `<b>${p.sym === '—' ? 'なし' : p.sym}</b> <small>${p.name}</small>` +
-      `<span class="panel-val">${prefixText(value, p)}</span>`,
-    p,
-  })), (item) => { applyPrefix(item.p); });
+  const value = target === 'answer' ? prefixableValue() : null;
+  openList(target === 'answer' ? 'SI 接頭辞 — 答えの表示を変える' : 'SI 接頭辞 — 入力する',
+    SI_PREFIXES.filter((p) => target === 'answer' || p.exp !== 0).map((p) => ({
+      html: `<b>${p.sym === '—' ? 'なし' : p.sym}</b> <small>${p.name}</small>` +
+        `<span class="panel-val">${target === 'answer' ? prefixText(value, p)
+          : `×${tenTo(p.exp)}`}</span>`,
+      p,
+    })), (item) => { usePrefix(target, item.p); });
 }
 
 // --- Memory / variables -----------------------------------------------------

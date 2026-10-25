@@ -130,6 +130,8 @@ body { display: flex; justify-content: center; }
 .nd-ch { padding: 0 .02em; }
 .nd-op { padding: 0 .16em; }
 .nd-sym { padding: 0 .04em; }
+/* An SI prefix in the expression (80M), tinted so it never reads as the variable M. */
+.nd-si { padding: 0 .03em 0 .06em; color: #1f5fa8; font-weight: 600; }
 
 .nd-caret {
   display: inline-block;

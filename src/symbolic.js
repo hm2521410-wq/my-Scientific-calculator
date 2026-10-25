@@ -110,6 +110,8 @@ export function fromAst(node) {
     case 'div': return PROD([fromAst(node.a), POW(fromAst(node.b), NEG_ONE)]);
     case 'pow': return POW(fromAst(node.a), fromAst(node.b));
     case 'pct': return PROD([fromAst(node.a), R(1, 100)]);
+    case 'si': return PROD([fromAst(node.a),
+      node.exp >= 0 ? R(10 ** node.exp) : R(1, 10 ** -node.exp)]);
     case 'fact': return FN('fact', [fromAst(node.a)]);
     case 'mixed': return SUM([fromAst(node.w), PROD([fromAst(node.n), POW(fromAst(node.d), NEG_ONE)])]);
     case 'ans': return V('Ans');

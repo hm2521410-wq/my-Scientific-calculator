@@ -258,8 +258,8 @@ await seq('n1', 'n0', 'n0', 'n0', 'eq');
   const got = (await tp.locator('#result').innerText()).replace(/\s+/g, ' ');
   if (/G/.test(got)) passed++; else failures.push(`SI release on G under touch → ${got}`);
 
-  // With no answer yet the key must still open: it calculates what is typed
-  // (as = would), or restates Ans when the line is empty.
+  // While typing, the prefix goes into the expression: 80 then M shows 80M
+  // and is calculated as 80×10⁶.
   const ladder = async (sym) => {
     const k = await tp.locator('[data-key-id="si"]').boundingBox();
     await touch('touchStart', k.x + k.width / 2, k.y + k.height / 2);
@@ -274,17 +274,47 @@ await seq('n1', 'n0', 'n0', 'n0', 'eq');
     if (row !== null) await touch('touchMove', k.x + k.width / 2, row);
     await touch('touchEnd');
     await tp.waitForTimeout(120);
-    return { rows, out: (await tp.locator('#result').innerText()).replace(/\s+/g, ' ') };
+    return rows;
   };
+  const exprText = async () => (await tp.locator('#expr').innerText()).replace(/\s+/g, '');
+  const resultText = async () => (await tp.locator('#result').innerText()).replace(/\s+/g, '');
   await tap('ac');
-  for (const id of ['n2', 'n5', 'n0', 'n0']) await tap(id);
-  let got2 = await ladder('k');
-  if (got2.rows === 17 && /2\s*\.\s*5\s*k/.test(got2.out)) passed++;
-  else failures.push(`SI on an uncalculated 2500 → rows ${got2.rows}, ${got2.out}`);
+  for (const id of ['n8', 'n0']) await tap(id);
+  const rows80 = await ladder('M');
+  const shown = await exprText();
+  await tap('eq');
+  await tp.waitForTimeout(80);
+  const val80 = await resultText();
+  if (rows80 === 17 && shown === '80M' && val80.startsWith('80000000')) passed++;
+  else failures.push(`80 then M: rows ${rows80}, expression "${shown}", result "${val80}"`);
+  const tinted = await tp.locator('#expr .nd-si').count();
+  if (tinted === 1) passed++; else failures.push(`SI prefix in the expression is not marked (${tinted})`);
+
+  // The reported formula, written with M instead of ×10⁶.
   await tap('ac');
-  got2 = await ladder('k');
-  if (got2.rows === 17 && /2\s*\.\s*5\s*k/.test(got2.out)) passed++;
-  else failures.push(`SI on an empty line (Ans 2500) → rows ${got2.rows}, ${got2.out}`);
+  for (const id of ['frac', 'n8', 'n0']) await tap(id);
+  await ladder('M');
+  for (const id of ['down', 'n4', 'n0', 'n0', 'mul', 'n4', 'n0', 'n0', 'mul', 'n1', 'n2', 'right',
+    'mul', 'n4', 'n0', 'sq', 'mul', 'n3', 'n0', 'eq']) await tap(id);
+  await tp.waitForTimeout(80);
+  const big = await resultText();
+  if (big.startsWith('2000000')) passed++; else failures.push(`80M fraction case → ${big}`);
+
+  // Right after =, the key restates the answer instead (display only).
+  await ladder('k');
+  const restated = await resultText();
+  if (/^2000k$/.test(restated) && (await exprText()).includes('80M')) passed++;
+  else failures.push(`SI after = should restate the answer: "${restated}"`);
+
+  // Tiny values: 3.3 ÷ 2.2k = 1.5m (1.5×10⁻³).
+  await tap('ac');
+  for (const id of ['n3', 'dot', 'n3', 'div', 'n2', 'dot', 'n2']) await tap(id);
+  await ladder('k');
+  await tap('eq');
+  await tp.waitForTimeout(80);
+  const small = await resultText();
+  // Shown first as the exact fraction 3/2000 (= 0.0015).
+  if (/^32000\[exact\]|1\.5×10-3|0\.0015/.test(small)) passed++; else failures.push(`3.3÷2.2k → ${small}`);
   await tctx.close();
 }
 

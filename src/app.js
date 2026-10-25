@@ -715,6 +715,15 @@ function createSiPicker(_key, rect) {
   });
   document.body.appendChild(el);
 
+  let sel = SI_NONE;
+  const paint = () => {
+    rows.forEach((r, i) => r.classList.toggle('on', i === sel));
+    head.textContent = `${F.formatReal(value, state.display).text} → ${prefixText(value, SI_PREFIXES[sel])}`;
+  };
+  // Fill the header before measuring anything: its height is fixed in CSS, but
+  // laying out first and filling later is what once shifted every row.
+  paint();
+
   // Squash the rows if the ladder would not otherwise fit on this screen.
   const room = window.innerHeight - head.offsetHeight - 12;
   const item = Math.max(18, Math.min(27, Math.floor(room / SI_PREFIXES.length)));
@@ -730,26 +739,16 @@ function createSiPicker(_key, rect) {
   el.style.top = `${Math.round(Math.max(6,
     Math.min(window.innerHeight - el.offsetHeight - 6, wanted)))}px`;
 
-  // Selection is whichever row the finger is actually over, measured from the
-  // laid-out position of "none" rather than from where the touch began.
-  const noneRect = rows[SI_NONE].getBoundingClientRect();
-  const noneMid = noneRect.top + noneRect.height / 2;
-
-
-  let sel = SI_NONE;
-  const paint = () => {
-    rows.forEach((r, i) => r.classList.toggle('on', i === sel));
-    head.textContent = `${F.formatReal(value, state.display).text} → ${prefixText(value, SI_PREFIXES[sel])}`;
-  };
-
   el.classList.add('visible');
-  paint();
 
   return {
     update(_x, y) {
       // The row the finger is over wins: upwards is larger, downwards smaller.
+      // Measured from the rows as they are now, so nothing that moves the
+      // ladder after it opens can put the selection out of step with the finger.
+      const none = rows[SI_NONE].getBoundingClientRect();
       const next = Math.max(0, Math.min(SI_PREFIXES.length - 1,
-        SI_NONE + Math.round((y - noneMid) / item)));
+        SI_NONE + Math.round((y - (none.top + none.height / 2)) / none.height)));
       if (next !== sel) {
         sel = next;
         paint();

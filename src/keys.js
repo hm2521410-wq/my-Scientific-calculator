@@ -202,8 +202,10 @@ export const FUNCTION_ROWS = [
       // ladder of prefixes reaching up (k, M, G, …) and down (m, µ, n, …).
       // It only ever restates the answer; the expression is never touched.
       center: k('接頭辞', menu('si'), null, null, 'SI'),
-      up: k('k  キロ', cmd('si', 3), 'shift', 'k M G'),
-      down: k('m  ミリ', cmd('si', -3), 'extra', 'm µ n'),
+      // Only reached if the ladder cannot open (no answer yet): show the full
+      // list or the explanation rather than quietly applying k or m.
+      up: k('k M G …', menu('si'), 'shift', 'k M G'),
+      down: k('m µ n …', menu('si'), 'extra', 'm µ n'),
       instantPicker: true,
     },
     {

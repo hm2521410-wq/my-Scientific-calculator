@@ -9,7 +9,7 @@ import * as F from '../src/format.js';
 import * as S from '../src/symbolic.js';
 import { solveEquation, solvePolynomialCoeffs, solveSimultaneous } from '../src/solve.js';
 import { integrate as quad, derivative, polynomialRoots } from '../src/numeric.js';
-import { Editor, serializeList, nodesFromAst } from '../src/editor.js';
+import { Editor, serializeList, nodesFromAst, makeNode, ch } from '../src/editor.js';
 
 let passed = 0;
 const failures = [];
@@ -191,19 +191,19 @@ ed.insertTemplate('frac', {}, 'num');
 ed.insertChar('3');
 ed.moveVertical(1, []);
 ed.insertChar('4');
-check('editor serialises a fraction', ed.serialize(), '(3/4)');
+check('editor serialises a fraction', ed.serialize(), '((3)/(4))');
 check('▼ moved into the denominator', ed.cursor.list.length, 1);
 ed.moveRight();
 ed.insertChar('+', '+');
 ed.insertTemplate('sqrt', {}, 'a');
 ed.insertChar('2');
-check('editor serialises √', ed.serialize(), '(3/4)+sqrt(2)');
+check('editor serialises √', ed.serialize(), '((3)/(4))+sqrt(2)');
 check('serialised editor output parses', (() => {
   try { parse(ed.serialize()); return 'ok'; } catch (e) { return e.kind; }
 })(), 'ok');
 ed.backspace();
 ed.backspace();
-check('DEL removes the template', ed.serialize(), '(3/4)+');
+check('DEL removes the template', ed.serialize(), '((3)/(4))+');
 
 const ed2 = new Editor();
 ed2.setNodes(nodesFromAst(parse('sqrt(2)/3+X^2')));
@@ -212,6 +212,102 @@ check('AST → editor nodes round-trips', (() => {
   const v2 = evaluate(parse(ed2.serialize()), makeContext());
   return Math.abs(v1.re - v2.re) < 1e-12;
 })(), true);
+
+// --- Editor → expression round trip ----------------------------------------
+//
+// The natural-display editor builds a tree; what is computed is its
+// serialisation. A fraction once serialised without parentheses round its
+// numerator and denominator, so 80×10⁶ over 400×400×12 computed as
+// 80×10⁶÷400×400×12. These two checks guard that whole class of mistake.
+
+{
+  // 1. Random expressions: tree → editor nodes → text → value must not change.
+  let seed = 12345;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  const N = (v) => ({ k: 'num', v });
+  const gen = (d) => {
+    if (d <= 0 || rnd() < 0.25) {
+      const r = rnd();
+      if (r < 0.6) return N(pick([1, 2, 3, 5, 7, 10, 12, 40, 80, 400, 0.5, 2.5]));
+      if (r < 0.8) return { k: 'var', n: pick(['X', 'A']) };
+      return { k: 'const', n: 'pi' };
+    }
+    const kind = pick(['add', 'sub', 'mul', 'div', 'div', 'pow', 'neg', 'sqrt', 'fn', 'paren', 'mul']);
+    if (kind === 'pow') return { k: 'pow', a: gen(d - 1), b: N(pick([2, 3, -1, 6])) };
+    if (kind === 'neg') return { k: 'neg', a: gen(d - 1) };
+    if (kind === 'sqrt') return { k: 'fn', n: 'sqrt', args: [gen(d - 1)] };
+    if (kind === 'fn') return { k: 'fn', n: pick(['sin', 'cos', 'ln', 'abs', 'cbrt']), args: [gen(d - 1)] };
+    if (kind === 'paren') return { k: 'paren', a: gen(d - 1) };
+    return { k: kind, a: gen(d - 1), b: gen(d - 1) };
+  };
+  const ctxR = () => {
+    const c = makeContext({ angle: 'rad' });
+    c.vars.X = Z.C(1.7, 0);
+    c.vars.A = Z.C(-0.6, 0);
+    return c;
+  };
+  let checked = 0, mismatched = 0, example = '';
+  for (let i = 0; i < 3000; i++) {
+    const ast = gen(4);
+    let want;
+    try { want = evaluate(ast, ctxR()); } catch { continue; }
+    if (!Number.isFinite(want.re) || !Number.isFinite(want.im)) continue;
+    const ed = new Editor();
+    ed.setNodes(nodesFromAst(ast));
+    let got = null;
+    try { got = evaluate(parse(ed.serialize()), ctxR()); } catch { /* counted below */ }
+    checked++;
+    const scale = Math.max(1, Math.abs(want.re), Math.abs(want.im));
+    if (!got || Math.abs(got.re - want.re) > 1e-9 * scale || Math.abs(got.im - want.im) > 1e-9 * scale) {
+      mismatched++;
+      if (!example) example = `${stringify(ast)}  →  ${ed.serialize()}`;
+    }
+  }
+  check(`editor round trip keeps the value (${checked} random expressions)`, mismatched,
+    (m) => m === 0 || (console.log(`    first mismatch: ${example}`), false));
+
+  // 2. Expressions built the way the keys build them, against independent values.
+  const OUT = { '×': '*', '÷': '/', '−': '-' };
+  const chars = (str) => [...str].map((c) => ch(c, OUT[c] ?? c));
+  const T = (t, slots) => {
+    const node = makeNode(t);
+    for (const [k, v] of Object.entries(slots)) node[k] = (k === 'name' || typeof v !== 'string') ? v : chars(v);
+    return node;
+  };
+  const seq = (...parts) => parts.flatMap((p) => (typeof p === 'string' ? chars(p) : [p]));
+  const keyed = [
+    ['reported: 80×10⁶ over 400×400×12, ×40²×30', seq(T('frac', { num: seq('80×10', T('sup', { e: '6' })), den: '400×400×12' }), '×40', T('sup', { e: '2' }), '×30'), 2e6],
+    ['fraction with sums', seq(T('frac', { num: '1+2', den: '3+4' })), 3 / 7],
+    ['number ÷ fraction', seq('6÷', T('frac', { num: '1', den: '2+1' })), 18],
+    ['nested fraction', seq(T('frac', { num: seq(T('frac', { num: '1', den: '2' })), den: seq(T('frac', { num: '3', den: '4' })) })), 2 / 3],
+    ['fraction in an exponent', seq('8', T('sup', { e: seq(T('frac', { num: '1', den: '3' })) })), 2],
+    ['fraction to a power', seq(T('frac', { num: '1', den: '2' }), T('sup', { e: '2' })), 0.25],
+    ['minus a fraction', seq('−', T('frac', { num: '1', den: '4' }), '+1'), 0.75],
+    ['√ in a denominator', seq(T('frac', { num: '1', den: seq(T('sqrt', { a: '4' })) })), 0.5],
+    ['ⁿ√ with compound parts', seq(T('nroot', { n: '1+2', a: '64−56' })), 2],
+    ['−3² is −(3²)', seq('−3', T('sup', { e: '2' })), -9],
+    ['2X² with X = 3', seq('2X', T('sup', { e: '2' })), 18],
+    ['log₂ of a product', seq(T('logb', { b: '1+1', a: '4×2' })), 3],
+    ['|2−7|×2', seq(T('abs', { a: '2−7' }), '×2'), 10],
+    ['1½ × 2', seq(T('mixed', { w: '1', num: '1', den: '2' }), '×2'), 3],
+    ['×10ˣ on its own is 1×10ˣ', seq(T('e10', { e: '3' })), 1000],
+    ['×10ˣ after an operator', seq('2×', T('e10', { e: '2' })), 200],
+    ['sin(20+10) in Deg', seq(T('fn', { name: 'sin', a: '20+10' })), 0.5],
+    ['∫ X² from 1−1 to 1+1', seq(T('integ', { lo: '1−1', hi: '1+1', f: seq('X', T('sup', { e: '2' })) })), 8 / 3],
+    ['Σ X/2 for X = 1..4', seq(T('sum', { lo: '1', hi: '4', f: seq(T('frac', { num: 'X', den: '2' })) })), 5],
+    ['d/dx (X³+X) at 1+1', seq(T('deriv', { f: seq('X', T('sup', { e: '3' }), '+X'), at: '1+1' })), 13],
+  ];
+  for (const [name, nodes, want] of keyed) {
+    const ed = new Editor();
+    ed.setNodes(nodes);
+    const c = makeContext({ angle: 'deg' });
+    c.vars.X = Z.C(3, 0);
+    let got;
+    try { got = evaluate(parse(ed.serialize()), c).re; } catch (e) { got = `${e.kind}`; }
+    check(`keyed: ${name}`, got, near(want, 1e-7 * Math.max(1, Math.abs(want))));
+  }
+}
 
 // --- Report -----------------------------------------------------------------
 

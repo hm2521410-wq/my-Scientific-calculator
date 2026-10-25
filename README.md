@@ -247,7 +247,7 @@ src/app.js         画面制御
 ```
 
 ```bash
-npm test            # 計算エンジンのテスト（106 件）
+npm test            # 計算エンジンのテスト（127 件。ランダム 3000 式の往復検査を含む）
 npm start           # ローカル配信
 npm run test:browser  # 実ブラウザでの操作テスト（要 playwright）
 ```

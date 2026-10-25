@@ -66,7 +66,13 @@ function charOut(node) {
 // --- Serialisation to the linear language ----------------------------------
 
 export function serializeList(list) {
-  return list.map(serializeNode).join('');
+  let out = '';
+  for (const n of list) {
+    // ×10ˣ with nothing in front of it means 1×10ˣ, as on the real machine.
+    if (n.t === 'e10' && (out === '' || /[-+*/(,^=]$/.test(out))) out += '1';
+    out += serializeNode(n);
+  }
+  return out;
 }
 
 const slot = (l) => (l.length ? serializeList(l) : '');
@@ -75,7 +81,9 @@ const grp = (l) => `(${slot(l) || '0'})`;
 function serializeNode(n) {
   if (isChar(n)) return charOut(n);
   switch (n.t) {
-    case 'frac': return `(${slot(n.num) || '0'}/${slot(n.den) || '1'})`;
+    // Numerator and denominator are each a whole sub-expression: without their
+    // own parentheses 80×10⁶ over 400×400×12 would read as 80×10⁶÷400×400×12.
+    case 'frac': return `((${slot(n.num) || '0'})/(${slot(n.den) || '1'}))`;
     case 'mixed': return `(${slot(n.w) || '0'}+(${slot(n.num) || '0'})/(${slot(n.den) || '1'}))`;
     case 'sqrt': return `sqrt${grp(n.a)}`;
     case 'cbrt': return `cbrt${grp(n.a)}`;

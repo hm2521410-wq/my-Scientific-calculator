@@ -95,6 +95,13 @@ await check('DEL removes the last entry', () => seq('n1', 'n2', 'n3', 'del', 'eq
 await check('Ans carries the previous result', () =>
   seq('n7', 'eq', 'add', 'ans', 'eq'), (r) => r.startsWith('1 4'));
 
+// The case reported from a phone: a fraction followed by more factors.
+await check('(80×10⁶)/(400×400×12)×40²×30 = 2000000', () => seq(
+  'frac', 'n8', 'n0', 'mul', 'n1', 'n0', 'pow', 'n6', 'right',
+  'down', 'n4', 'n0', 'n0', 'mul', 'n4', 'n0', 'n0', 'mul', 'n1', 'n2', 'right',
+  'mul', 'n4', 'n0', 'sq', 'mul', 'n3', 'n0', 'eq',
+), (r) => r.replace(/\s/g, '').startsWith('2000000'));
+
 // --- Equation solving -------------------------------------------------------
 
 await check('quadratic solved from the = sign', () =>
@@ -211,6 +218,47 @@ await seq('n1', 'n0', 'n0', 'n0', 'eq');
   // The expression itself must be untouched — this is a display change only.
   if (/1\s*0\s*0\s*0/.test((await page.locator('#expr').innerText()).replace(/\s+/g, ' '))) passed++;
   else failures.push('SI must not alter the expression');
+}
+
+// --- SI ladder under real touch input ----------------------------------------
+// Touch rounding once exposed a one-row offset that the mouse never showed.
+{
+  const tctx = await browser.newContext({ viewport: { width: 412, height: 915 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2.6 });
+  const tp = await tctx.newPage();
+  await tp.goto(`${BASE}/index.html`, { waitUntil: 'networkidle' });
+  await tp.evaluate(() => localStorage.clear());
+  await tp.reload({ waitUntil: 'networkidle' });
+  await tp.waitForTimeout(250);
+  const cdp = await tctx.newCDPSession(tp);
+  const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
+  const tap = async (id) => {
+    const r = await tp.locator(`[data-key-id="${id}"]`).boundingBox();
+    await touch('touchStart', r.x + r.width / 2, r.y + r.height / 2);
+    await touch('touchEnd');
+    await tp.waitForTimeout(35);
+  };
+  for (const id of ['n1', 'n0', 'n0', 'n0', 'eq']) await tap(id);
+  const r = await tp.locator('[data-key-id="si"]').boundingBox();
+  const cx = r.x + r.width / 2;
+  await touch('touchStart', cx, r.y + r.height / 2);
+  await tp.waitForTimeout(120);
+  const mids = await tp.evaluate(() => [...document.querySelectorAll('.si-picker .si-row')]
+    .map((row) => { const b = row.getBoundingClientRect(); return { sym: row.querySelector('b').textContent, y: b.top + b.height / 2 }; }));
+  let tracked = 0;
+  for (const m of mids) {
+    await touch('touchMove', cx, m.y);
+    await tp.waitForTimeout(25);
+    if ((await tp.locator('.si-picker .si-row.on b').innerText()) === m.sym) tracked++;
+  }
+  if (mids.length === 17 && tracked === 17) passed++;
+  else failures.push(`SI ladder under touch: ${tracked}/${mids.length} rows tracked`);
+  const giga = mids.find((m) => m.sym === 'G');
+  await touch('touchMove', cx, giga.y);
+  await touch('touchEnd');
+  await tp.waitForTimeout(120);
+  const got = (await tp.locator('#result').innerText()).replace(/\s+/g, ' ');
+  if (/G/.test(got)) passed++; else failures.push(`SI release on G under touch → ${got}`);
+  await tctx.close();
 }
 
 // --- Legends never overlap or get clipped -----------------------------------
